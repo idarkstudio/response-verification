@@ -1,150 +1,148 @@
-# Asset certification
+# Certificación de assets
 
-Asset certification is a specialized form of
-[HTTP certification](https://internetcomputer.org/docs/current/developer-docs/http-compatible-canisters/custom-http-canisters)
-built for certifying static assets in [ICP](https://internetcomputer.org/) canisters.
+La certificación de assets es una forma especializada de
+[certificación HTTP](https://internetcomputer.org/docs/current/developer-docs/http-compatible-canisters/custom-http-canisters)
+diseñada para certificar assets estáticos en canisters de
+[ICP](https://internetcomputer.org/).
 
-The `ic-asset-certification` crate provides the necessary functionality to
-certify and serve static assets from Rust canisters.
+El crate `ic-asset-certification` proporciona la funcionalidad necesaria para
+certificar y servir assets estáticos desde canisters en Rust.
 
-This is implemented in the following steps:
+Esto se implementa en los siguientes pasos:
 
-1. [Preparing assets](#preparing-assets).
-2. [Configuring asset certification](#configuring-asset-certification).
-3. [Inserting assets into the asset router](#inserting-assets-into-the-asset-router).
-4. [Serving assets](#serving-assets).
-5. [Deleting assets](#deleting-assets).
-6. [Querying assets](#querying-assets).
+1. [Preparar assets](#preparar-assets).
+2. [Configurar la certificación de assets](#configurar-la-certificación-de-assets).
+3. [Insertar assets en el enrutador de assets](#insertar-assets-en-el-enrutador-de-assets).
+4. [Servir assets](#servir-assets).
+5. [Eliminar assets](#eliminar-assets).
+6. [Consultar assets](#consultar-assets).
 
-For canisters that need it, it's also possible to [delete assets](#deleting-assets).
+Para los canisters que lo necesiten, también es posible
+[eliminar assets](#eliminar-assets).
 
-## Preparing assets
+## Preparar assets
 
-This library is unopinionated about where assets come from. However, there are three main options:
+Esta biblioteca no impone restricciones sobre el origen de los assets. Sin
+embargo, existen tres opciones principales:
 
-- Embedding assets in the canister at compile time:
-    - [include_bytes!](https://doc.rust-lang.org/std/macro.include_bytes.html)
-    - [include_dir!](https://docs.rs/include_dir/latest/include_dir/index.html)
-- Uploading assets via canister endpoints at runtime:
-    - The [`dfx` asset canister](https://github.com/dfinity/sdk/blob/master/docs/design/asset-canister-interface.md) is a good example of this approach.
-- Generating assets dynamically in code, at runtime.
+- Incluir assets en el canister en tiempo de compilación:
+  - [`include_bytes!`](https://doc.rust-lang.org/std/macro.include_bytes.html)
+  - [`include_dir!`](https://docs.rs/include_dir/latest/include_dir/index.html)
+- Cargar assets a través de endpoints del canister en tiempo de ejecución:
+  - El
+    [`dfx` asset canister](https://github.com/dfinity/sdk/blob/master/docs/design/asset-canister-interface.md)
+    es un buen ejemplo de este enfoque.
+- Generar assets dinámicamente en código en tiempo de ejecución.
 
-With the assets in memory, they can be converted into the `Asset` type:
+Una vez que los assets están en memoria, pueden convertirse en el tipo `Asset`:
 
 ```rust
 use ic_asset_certification::Asset;
 
 let asset = Asset::new(
-    "index.html",
-    b"<html><body><h1>Hello World!</h1></body></html>".as_slice(),
+    "index.html",
+    b"<html><body><h1>¡Hola Mundo!</h1></body></html>".as_slice(),
 );
 ```
 
-It is recommended to use references when including assets directly in the
-canister to avoid duplicating the content. This is particularly important for
-larger assets.
+Se recomienda utilizar referencias al incluir assets directamente en el canister
+para evitar duplicar el contenido. Esto es especialmente importante para assets
+grandes.
 
 ```rust
 use ic_asset_certification::Asset;
 
 let pretty_big_asset = include_bytes!("lib.rs");
 let asset = Asset::new(
-    "assets/pretty-big-asset.gz",
-    pretty_big_asset.as_slice(),
+    "assets/pretty-big-asset.gz",
+    pretty_big_asset.as_slice(),
 );
 ```
 
-In some cases, it may be necessary to use owned values, such as when assets are
-dynamically generated or modified at runtime.
+En algunos casos, puede ser necesario usar valores propios, como cuando los
+assets se generan dinámicamente o se modifican en tiempo de ejecución.
 
 ```rust
 use ic_asset_certification::Asset;
 
-let name = "World";
+let name = "Mundo";
 let asset = Asset::new(
-    "index.html",
-    format!("<html><body><h1>Hello {name}!</h1></body></html>").into_bytes(),
+    "index.html",
+    format!("<html><body><h1>¡Hola {name}!</h1></body></html>").into_bytes(),
 );
 ```
 
-## Configuring asset certification
+## Configurar la certificación de assets
 
-`AssetConfig` defines the configuration for any files that will be certified.
-The configuration can either be matched to an individual file by path or to
-many files by a glob.
+`AssetConfig` define la configuración para cualquier archivo que será
+certificado. La configuración puede aplicarse a un archivo individual por ruta o
+a múltiples archivos mediante un patrón.
 
-In both cases, the following options can be configured for each asset:
+En ambos casos, las siguientes opciones pueden configurarse para cada asset:
 
 - `content_type`
-    - Providing this option will certify and serve a `Content-Type` header with
-      the provided value.
-    - If this value is not provided, the `Content-Type` header will not be
-      inserted.
-    - If the `Content-Type` header is not sent to the browser, the browser will
-      try to guess the content type based on the file extension, unless an
-      `X-Content-Type-Options: nosniff` header is sent.
-    - Not certifying the `Content-Type` header will also allow a malicious replica
-      to insert its own `Content-Type` header, which could lead to a security
-      vulnerability.
+  - Si se proporciona esta opción, se certificará y servirá un encabezado
+    `Content-Type` con el valor especificado.
+  - Si no se proporciona, el encabezado `Content-Type` no será insertado.
+  - Si el encabezado `Content-Type` no es enviado al navegador, este intentará
+    adivinar el tipo de contenido basado en la extensión del archivo, a menos
+    que se envíe un encabezado `X-Content-Type-Options: nosniff`.
+  - No certificar el encabezado `Content-Type` podría permitir que una réplica
+    maliciosa inserte su propio encabezado `Content-Type`, lo que podría generar
+    una vulnerabilidad de seguridad.
 - `headers`
-    - Any additional headers provided will be certified and served with the
-      asset.
-    - It's important to include any headers that can affect browser behavior,
-      particularly [security headers](https://owasp.org/www-project-secure-headers/index.html).
+  - Cualquier encabezado adicional que se proporcione será certificado y servido
+    con el asset.
+  - Es importante incluir encabezados que puedan afectar el comportamiento del
+    navegador, especialmente
+    [encabezados de seguridad](https://owasp.org/www-project-secure-headers/index.html).
 - `encodings`
-  - A list of alternative encodings that can be used to serve the asset.
-  - Each entry is a tuple of the encoding name and the file
-    extension used in the file path, that can be conveniently created with
-    the `default` factory method. For example, to include Brotli and Gzip encodings:
+  - Una lista de codificaciones alternativas que pueden usarse para servir el
+    asset.
+  - Cada entrada es una tupla con el nombre de la codificación y la extensión de
+    archivo utilizada en la ruta.
+  - Cada entrada es una tupla con el nombre de la codificación y la extensión de
+    archivo utilizada en la ruta, que se puede crear de manera conveniente con
+    el método de fábrica `default`. Por ejemplo, para incluir las codificaciones Brotli y Gzip:
     `vec![AssetEncoding::Brotli.default(), AssetEncoding::Gzip.default()]`.
-  - The default file extensions for each encoding are:
+  - Las extensiones de archivo predeterminadas para cada codificación son:
     - Brotli: `br`
     - Gzip: `gz`
     - Deflate: `zz`
     - Zstd: `zst`
-  - Alternatively, a custom file extension can be provided for each encoding
-    by using the `custom` factory method. For example, to include a custom
-    file extension for Brotli and Gzip encodings:
+  - Alternativamente, se puede proporcionar una extensión de archivo personalizada para cada codificación
+    utilizando el método de fábrica `custom`. Por ejemplo, para incluir una extensión de archivo personalizada
+    para las codificaciones Brotli y Gzip:
     `vec![AssetEncoding::Brotli.custom("brotli"), AssetEncoding::Gzip.custom("gzip")]`.
-  - Each encoding referenced must be provided to the asset router as a
-    separate file with the same filename as the original file, but with an
-    additional file extension matching the configuration. For example, if the
-    current matched file is named `file.html`, then the asset router will
-    look for `file.html.br` and `file.html.gz`.
-  - If the file is found, the asset will be certified and served with the
-    provided encoding according to the `Accept-Encoding`.
-  - Encodings are prioritized in the following order:
+  - Cada codificación referenciada debe ser proporcionada al enrutador de assets como un
+    archivo separado con el mismo nombre de archivo que el archivo original, pero con una
+    extensión de archivo adicional que coincida con la configuración. Por ejemplo, si el
+    archivo coincidente actual se llama `file.html`, entonces el enrutador de assets
+    buscará `file.html.br` y `file.html.gz`.
+  - Si se encuentra el archivo, el asset será certificado y servido con la
+    codificación proporcionada según el `Accept-Encoding`.
+  - Las codificaciones se priorizan en el siguiente orden:
     - Brotli
     - Zstd
     - Gzip
     - Deflate
     - Identity
-  - The asset router will return the highest priority encoding that has been
-    certified and is supported by the client.
+  - El enrutador de assets devolverá la codificación de mayor prioridad que ha sido
+    certificada y es compatible con el cliente.
 
-### Configuring individual files
+### Configurar archivos individuales
 
-When configuring an individual file, the `path` property is provided and must
-match the path passed into the `Asset` constructor in the previous step.
+Cuando se configura un archivo individual, la propiedad `path` debe coincidir
+con la ruta utilizada en el constructor de `Asset`.
 
-In addition to the common configuration options, individual assets also have
-the option of registering the asset as a fallback response for a particular
-scope. This can be used to configure 404 pages or single-page application
-entry points, for example.
+También es posible registrar un asset como respuesta alternativa para un
+determinado alcance (scope), útil para configurar páginas 404 o puntos de
+entrada de aplicaciones de una sola página (SPA).
+Cuando se sirven assets, si una ruta solicitada no coincide exactamente con ningún asset, se realiza una búsqueda de un asset configurado con el alcance de fallback que coincida más estrechamente con la ruta del asset solicitado.
 
-When serving assets, if a requested path does not exactly match any assets, then
-a search is conducted for an asset configured with the fallback scope that most
-closely matches the requested asset's path.
+Por ejemplo, si se realiza una solicitud para `/app.js` y no se encuentra ningún asset con esa ruta exacta, se intentará servir un asset configurado con un alcance de fallback de `/`.
 
-For example, if a request is made for `/app.js` and no asset with that exact
-path is found, an attempt will be made to serve an asset configured with a
-fallback scope of `/`.
-
-This will be done recursively until it's no longer
-possible to find a valid fallback. For example, if a request is made for
-`/assets/js/app/core/index.js` and no asset with that exact path is found, then
-the search will check for assets configured with the following fallback scopes,
-in order:
+Esto se hará de forma recursiva hasta que ya no sea posible encontrar un fallback válido. Por ejemplo, si se realiza una solicitud para `/assets/js/app/core/index.js` y no se encuentra ningún asset con esa ruta exacta, entonces la búsqueda verificará los assets configurados con los siguientes alcances de fallback, en orden:
 
 - `/assets/js/app/core`
 - `/assets/js/app`
@@ -152,50 +150,39 @@ in order:
 - `/assets`
 - `/`
 
-If multiple fallback assets are configured, the first one found will be used,
-since that will be the most specific one available for that path. If no asset is
-found with any of these fallback scopes, no response will be returned.
+Si se configuran varios assets de fallback, se utilizará el primero que se encuentre, ya que será el más específico disponible para esa ruta. Si no se encuentra ningún asset con ninguno de estos alcances de fallback, no se devolverá ninguna respuesta.
 
-It's also possible to register aliases for an asset. This can be useful for
-configuring multiple paths that should serve the same asset. For example, if an
-asset is configured with the path `index.html`, it can be aliased by the path
-`/`.
+También es posible registrar alias para un asset. Esto puede ser útil para configurar múltiples rutas que deben servir el mismo asset. Por ejemplo, si se configura un asset con la ruta `index.html`, se puede alias la ruta `/`.
 
-The following example configures an individual HTML file to be served by the
-on the `/index.html` path, in addition to serving as the fallback for the `/`
-scope and setting `/` as an alias for this asset.
+El siguiente ejemplo configura un archivo HTML individual para ser servido en la ruta `/index.html`, además de servir como fallback para el alcance `/` y establecer `/` como un alias para este asset.
 
 ```rust
 use ic_http_certification::StatusCode;
 use ic_asset_certification::{AssetConfig, AssetFallbackConfig};
 
 let config = AssetConfig::File {
-    path: "index.html".to_string(),
-    content_type: Some("text/html".to_string()),
-    headers: vec![
-        ("Cache-Control".to_string(), "public, no-cache, no-store".to_string()),
-    ],
-    fallback_for: vec![AssetFallbackConfig {
-        scope: "/".to_string(),
-        status_code: Some(StatusCode::OK),
-    }],
-    aliased_by: vec!["/".to_string()],
-    encodings: vec![
-        AssetEncoding::Brotli.default(),
-        AssetEncoding::Gzip.default()
-    ],
+    path: "index.html".to_string(),
+    content_type: Some("text/html".to_string()),
+    headers: vec![
+        ("Cache-Control".to_string(), "public, no-cache, no-store".to_string()),
+    ],
+    fallback_for: vec![AssetFallbackConfig {
+        scope: "/".to_string(),
+        status_code: Some(StatusCode::OK),
+    }],
+    aliased_by: vec!["/".to_string()],
+    encodings: vec![
+        AssetEncoding::Brotli.default(),
+        AssetEncoding::Gzip.default()
+    ],
 };
 ```
 
-It's also possible to configure multiple fallbacks for a single asset. The
-following example configures an individual HTML file to be served on the
-`/404.html` path, in addition to serving as the fallback for the `/js` and `/css`
-scopes.
+También es posible configurar múltiples fallbacks para un solo asset. El siguiente ejemplo configura un archivo HTML individual para ser servido en la ruta `/404.html`, además de servir como fallback para los alcances `/js` y `/css`.
 
-Any request to paths starting in `/js` and `/css` directories that don't exactly
-match an asset will be routed to the `/404.html` asset.
+Cualquier solicitud a rutas que comiencen en los directorios `/js` y `/css` y que no coincidan exactamente con un asset será enrutada al asset `/404.html`.
 
-Multiple aliases are also configured for this asset, namely:
+También se configuran múltiples alias para este asset, a saber:
 
 - `/404`,
 - `/404/`,
@@ -204,7 +191,7 @@ Multiple aliases are also configured for this asset, namely:
 - `/not-found/`
 - `/not-found/index.html`
 
-Requests to any of those aliases will serve the `/404.html` asset.
+Las solicitudes a cualquiera de esos alias servirán el asset `/404.html`.
 
 ```rust
 use ic_http_certification::StatusCode;
@@ -241,103 +228,84 @@ let config = AssetConfig::File {
 };
 ```
 
-### Configuring file patterns
+### Configurar patrones de archivos
 
-When configuring file patterns, the `pattern` property is provided. This
-property is a glob pattern that will be used to match multiple files.
+Cuando se configuran patrones de archivos, se usa la propiedad `pattern`, que
+define una expresión glob para hacer coincidir múltiples archivos.
 
-Standard Unix-style glob syntax is supported:
+La sintaxis de glob estilo Unix estándar es compatible:
 
-- `?` matches any single character.
-- `*` matches zero or more characters.
-- `**` recursively matches directories but is only legal in three
-    situations.
-    - If the glob starts with `**/`, then it matches all directories.
-      For example, `**/foo` matches `foo` and `bar/foo` but not
-      `foo/bar`.
-    - If the glob ends with `/**`, then it matches all sub-entries.
-      For example, `foo/**` matches `foo/a` and `foo/a/b`, but not
-      `foo`.
-    - If the glob contains `/**/` anywhere within the pattern, then it
-      matches zero or more directories.
-    - Using `**` anywhere else is illegal.
-    - The glob `**` is allowed and means "match everything."
-- `{a,b}` matches `a` or `b` where `a` and `b` are arbitrary glob
-    patterns. (N.B. Nesting `{...}` is not currently allowed.)
-- `[ab]` matches `a` or `b` where `a` and `b` are characters.
-- `[!ab]` to match any character except for `a` and `b`.
-- Metacharacters such as `*` and `?` can be escaped with character
-    class notation, e.g., `[*]` matches `*`.
+- `?` coincide con cualquier carácter individual.
+- `*` coincide con cero o más caracteres.
+- `**` coincide recursivamente con directorios, pero solo es válido en tres situaciones.
+  - Si el glob comienza con `**/`, entonces coincide con todos los directorios.
+    Por ejemplo, `**/foo` coincide con `foo` y `bar/foo`, pero no con `foo/bar`.
+  - Si el glob termina con `/**`, entonces coincide con todas las subentradas.
+    Por ejemplo, `foo/**` coincide con `foo/a` y `foo/a/b`, pero no con `foo`.
+  - Si el glob contiene `/**/` en cualquier lugar dentro del patrón, entonces coincide con cero o más directorios.
+  - Usar `**` en cualquier otro lugar es ilegal.
+  - El glob `**` está permitido y significa "coincidir con todo".
+- `{a,b}` coincide con `a` o `b`, donde `a` y `b` son patrones de glob arbitrarios. (N.B. Anidar `{...}` no está permitido actualmente.)
+- `[ab]` coincide con `a` o `b`, donde `a` y `b` son caracteres.
+- `[!ab]` para coincidir con cualquier carácter excepto `a` y `b`.
+- Los metacaracteres como `*` y `?` se pueden escapar con la notación de clase de caracteres, por ejemplo, `[*]` coincide con `*`.
 
-For example, the following pattern will match all `.js` files in the `js`
-directory:
+Por ejemplo, el siguiente patrón coincidirá con todos los archivos `.js` en el directorio `js`:
 
 ```rust
 use ic_http_certification::StatusCode;
 use ic_asset_certification::AssetConfig;
 
 let config = AssetConfig::Pattern {
-    pattern: "js/*.js".to_string(),
-    content_type: Some("application/javascript".to_string()),
-    headers: vec![
-        ("Cache-Control".to_string(), "public, max-age=31536000, immutable".to_string()),
-    ],
-    encodings: vec![
-        AssetEncoding::Brotli.default(),
-        AssetEncoding::Gzip.default(),
-    ],
+    pattern: "js/*.js".to_string(),
+    content_type: Some("application/javascript".to_string()),
+    headers: vec![
+        ("Cache-Control".to_string(), "public, max-age=31536000, immutable".to_string()),
+    ],
+    encodings: vec![
+        AssetEncoding::Brotli.default(),
+        AssetEncoding::Gzip.default(),
+    ],
 };
 ```
 
-### Configuring redirects
+### Configurar redirecciones
 
-Redirects can be configured using the `AssetConfig::Redirect` variant. This
-variant takes `from` and `to` paths, and a redirect `kind`.
-When a request is made to the `from` path, the client will be redirected to the
-`to` path. The `AssetConfig::Redirect` config is not matched against any `Asset`s.
+Las redirecciones se pueden configurar utilizando la variante `AssetConfig::Redirect`. Esta variante toma las rutas `from` y `to`, y un tipo de redirección `kind`.
+Cuando se realiza una solicitud a la ruta `from`, el cliente será redirigido a la ruta `to`. La configuración `AssetConfig::Redirect` no se compara con ningún `Asset`.
 
-Redirects can be configured as either permanent
-or temporary.
+Las redirecciones se pueden configurar como permanentes o temporales.
 
-The browser will cache permanent redirects and will not request the old
-location again. This is useful when the resource has permanently moved to a new
-location. The browser will update its bookmarks and search engine results.
+El navegador almacenará en caché las redirecciones permanentes y no solicitará la ubicación anterior nuevamente. Esto es útil cuando el recurso se ha movido permanentemente a una nueva ubicación. El navegador actualizará sus marcadores y resultados de búsqueda en los motores de búsqueda.
 
-See the
-[MDN Web Docs](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/301)
-for more information on permanent redirects.
+Consulte la documentación de [MDN Web Docs](https://developer.mozilla.org/es/docs/Web/HTTP/Status/301) para obtener más información sobre las redirecciones permanentes.
 
-The browser will not cache temporary redirects and will request
-the old location again. This is useful when the resource has temporarily moved
-to a new location. The browser will not update its bookmarks and search engine
-results.
+El navegador no almacenará en caché las redirecciones temporales y solicitará la ubicación anterior nuevamente. Esto es útil cuando el recurso se ha movido temporalmente a una nueva ubicación. El navegador no actualizará sus marcadores y resultados de búsqueda en los motores de búsqueda.
 
-See the
-[MDN Web Docs](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/307)
-for more information on temporary redirects.
+Consulte la documentación de [MDN Web Docs](https://developer.mozilla.org/es/docs/Web/HTTP/Status/307) para obtener más información sobre las redirecciones temporales.
 
-The following example configures a permanent redirect from `/old` to `/new`:
+El siguiente ejemplo configura una redirección permanente desde `/old` a `/new`:
 
 ```rust
 use ic_asset_certification::{AssetConfig, AssetRedirectKind};
 
 let config = AssetConfig::Redirect {
-  from: "/old".to_string(),
-  to: "/new".to_string(),
-  kind: AssetRedirectKind::Permanent,
-  headers: vec![(
-    "content-type".to_string(),
-    "text/plain; charset=utf-8".to_string(),
-  )],
+    from: "/old".to_string(),
+    to: "/new".to_string(),
+    kind: AssetRedirectKind::Permanent,
+    headers: vec![(
+        "content-type".to_string(),
+        "text/plain; charset=utf-8".to_string(),
+    )],
 };
 ```
 
-## Inserting assets into the asset router
+## Insertar assets en el enrutador de assets
 
-The `AssetRouter` is responsible for certifying responses and routing requests to
-the appropriate response.
+El `AssetRouter` es responsable de certificar respuestas y enrutar solicitudes a
+la respuesta adecuada.
 
-Assets can be inserted using the `certify_assets` method:
+Los assets pueden insertarse usando el método `certify_assets`:
 
 ```rust
 use ic_http_certification::StatusCode;
@@ -440,8 +408,8 @@ let asset_configs = vec![
 asset_router.certify_assets(assets, asset_configs).unwrap();
 ```
 
-After certifying assets, make sure to set the canister's
-certified data:
+Después de certificar los assets, asegúrate de establecer los datos certificados
+del canister:
 
 ```rust
 use ic_cdk::api::set_certified_data;
@@ -449,13 +417,14 @@ use ic_cdk::api::set_certified_data;
 set_certified_data(&asset_router.root_hash());
 ```
 
-After creating the `AssetRouter`, it's also possible to initialize the router
-with an `HttpCertificationTree`. This is useful when direct access to the
-`HttpCertificationTree` is required for certifying `HttpRequest`s and
-`HttpResponse`s outside of the `AssetRouter`.
+Después de crear el `AssetRouter`, también es posible inicializar el enrutador
+con un `HttpCertificationTree`. Esto es útil cuando se requiere acceso directo
+al `HttpCertificationTree` para certificar `HttpRequest`s y `HttpResponse`s
+fuera del `AssetRouter`.
 
-The initialization of the `AssetRouter` must be done before certifying any assets
-as the initialization function will reset the internal state of the `AssetRouter`.
+La inicialización del `AssetRouter` debe realizarse antes de certificar
+cualquier asset, ya que la función de inicialización restablecerá el estado
+interno del `AssetRouter`.
 
 ```rust
 use std::{cell::RefCell, rc::Rc};
@@ -468,11 +437,12 @@ let mut asset_router = AssetRouter::default();
 asset_router.init_with_tree(http_certification_tree.clone());
 ```
 
-## Serving assets
+## Servir assets
 
-Assets can be served by calling the `serve_asset` method on the `AssetRouter`.
-This method will return a response, a witness, and an expression path, which can be used
-alongside the canister's data certificate to add the required certificate header to the response.
+Los assets pueden servirse llamando al método `serve_asset` en el `AssetRouter`.
+Este método devolverá una respuesta, un testigo y una ruta de expresión, que
+pueden utilizarse junto con el certificado de datos del canister para agregar el
+encabezado de certificado requerido a la respuesta.
 
 ```rust
 use ic_http_certification::{HttpRequest, utils::add_v2_certificate_header, StatusCode};
@@ -505,7 +475,7 @@ asset_router.certify_assets(vec![asset], vec![asset_config]).unwrap();
 
 let (mut response, witness, expr_path) = asset_router.serve_asset(&http_request).unwrap();
 
-// This should normally be retrieved using `ic_cdk::api::data_certificate()`.
+// Normalmente, esto debería obtenerse usando `ic_cdk::api::data_certificate()`.
 let data_certificate = vec![1, 2, 3];
 
 add_v2_certificate_header(
@@ -516,34 +486,42 @@ add_v2_certificate_header(
 );
 ```
 
-## Deleting assets
+## Eliminar assets
 
-There are three ways to delete assets from the asset router:
+Hay tres formas de eliminar assets del enrutador de assets:
 
-1. [By configuration](#deleting-assets-by-configuration).
-1. [By path](#deleting-assets-by-path).
-1. [All at once](#deleting-all-assets).
+1. [Por configuración](#deleting-assets-by-configuration).
+2. [Por ruta](#deleting-assets-by-path).
+3. [Todos a la vez](#deleting-all-assets).
 
-### Deleting assets by configuration
+### Eliminar assets por configuración
 
-Deleting assets by configuration is similar to [certifying them](#inserting-assets-into-the-asset-router).
+Eliminar assets por configuración es similar a
+[certificarlos](#inserting-assets-into-the-asset-router).
 
-Depending on the configuration provided to the `certify_assets` function,
-multiple responses may be generated for the same asset. To ensure that all generated responses are deleted,
-the `delete_assets` function accepts the same configuration.
+Dependiendo de la configuración proporcionada a la función `certify_assets`,
+pueden generarse múltiples respuestas para el mismo asset. Para asegurarse de
+que todas las respuestas generadas sean eliminadas, la función `delete_assets`
+acepta la misma configuración.
 
-If a configuration different from the one used to certify assets in the first place is provided,
-one of two things can happen:
+Si se proporciona una configuración diferente a la utilizada originalmente para
+certificar los assets, pueden ocurrir dos cosas:
 
-1. If the configuration includes a file that was not certified in the first place, it will be silently ignored.
-   For example, if the configuration provided to `certify_assets` includes the Brotli and Gzip encodings, but the
-   configuration provided to `delete_assets` includes Brotli, Gzip, and Deflate. The Brotli and Gzip encoded files will be deleted, while the Deflate file is ignored, since it doesn't exist.
+1. Si la configuración incluye un archivo que no fue certificado, será ignorado
+   silenciosamente. Por ejemplo, si la configuración proporcionada a
+   `certify_assets` incluye las codificaciones Brotli y Gzip, pero la
+   configuración proporcionada a `delete_assets` incluye Brotli, Gzip y Deflate.
+   Los archivos codificados en Brotli y Gzip serán eliminados, mientras que el
+   archivo Deflate será ignorado, ya que no existe.
 
-2. If the configuration excludes a file that was certified, it will not be deleted. For example, if the configuration,
-   provided to `certify_assets` includes the Brotli and Gzip encodings, but the configuration provided to `delete_assets`
-   only includes Brotli, then the Gzip file will not be deleted.
+2. Si la configuración excluye un archivo que fue certificado, este no será
+   eliminado. Por ejemplo, si la configuración proporcionada a `certify_assets`
+   incluye las codificaciones Brotli y Gzip, pero la configuración proporcionada
+   a `delete_assets` solo incluye Brotli, entonces el archivo Gzip no será
+   eliminado.
 
-Assuming the same base example used above to demonstrate certifying assets:
+Asumiendo el mismo ejemplo base utilizado anteriormente para demostrar la
+certificación de assets:
 
 ```rust
 use ic_http_certification::StatusCode;
@@ -646,7 +624,8 @@ let asset_configs = vec![
 asset_router.certify_assets(assets, asset_configs).unwrap();
 ```
 
-To delete the `index.html` asset, along with the fallback configuration for the `/` scope, the alias `/` and the alternative encodings:
+Para eliminar el asset `index.html`, junto con la configuración de fallback para
+el alcance `/`, el alias `/` y las codificaciones alternativas:
 
 ```rust
 asset_router
@@ -680,7 +659,7 @@ asset_router
     .unwrap();
 ```
 
-To delete the `app.js` asset, along with the alternative encodings:
+Para eliminar el asset `app.js`, junto con las codificaciones alternativas:
 
 ```rust
 asset_router
@@ -706,7 +685,8 @@ asset_router
     .unwrap();
 ```
 
-To delete the `css/app-ba74b708.css` asset, along with the alternative encodings:
+Para eliminar el asset `css/app-ba74b708.css`, junto con las codificaciones
+alternativas:
 
 ```rust
 asset_router.delete_assets(
@@ -741,7 +721,7 @@ asset_router.delete_assets(
 ).unwrap();
 ```
 
-And finally, to delete the `/old` redirect:
+Y finalmente, para eliminar la redirección `/old`:
 
 ```rust
 asset_router
@@ -760,8 +740,8 @@ asset_router
     .unwrap();
 ```
 
-After deleting any assets, make sure to set the canister's
-certified data again:
+Luego de eliminar cualquier asset, asegúrate de establecer los datos
+certificados del canister:
 
 ```rust
 use ic_cdk::api::set_certified_data;
@@ -769,20 +749,23 @@ use ic_cdk::api::set_certified_data;
 set_certified_data(&asset_router.root_hash());
 ```
 
-### Deleting assets by path
+### Eliminando assets por ruta
 
-To delete assets by path, use the `delete_assets_by_path` function.
+Para eliminar assets por ruta, utiliza la función `delete_assets_by_path`.
 
-Depending on the configuration provided to the `certify_assets` function,
-multiple responses may be generated for the same asset. These assets may exist on different paths,
-for example, if the `alias` configuration is used. If `alias` paths are not passed to this function,
-they will not be deleted.
+Dependiendo de la configuración proporcionada a la función `certify_assets`, se
+pueden generar múltiples respuestas para el mismo asset. Estos assets pueden
+existir en diferentes rutas, por ejemplo, si se utiliza la configuración de
+`alias`. Si no se pasan las rutas de `alias` a esta función, no se eliminarán.
 
-If multiple encodings exist for a path, all encodings will be deleted.
+Si existen múltiples codificaciones para una ruta, se eliminarán todas las
+codificaciones.
 
-Fallbacks are also not deleted; to delete them, use the `delete_fallback_assets_by_path` function.
+Las alternativas tampoco se eliminan; para eliminarlas, utiliza la función
+`delete_fallback_assets_by_path`.
 
-Assuming the same base example used above to demonstrate certifying assets:
+Asumiendo el mismo ejemplo base utilizado anteriormente para demostrar la
+certificación de assets:
 
 ```rust
 use ic_http_certification::StatusCode;
@@ -882,7 +865,8 @@ let asset_configs = vec![
 asset_router.certify_assets(assets, asset_configs).unwrap();
 ```
 
-To delete the `index.html` asset, along with the fallback configuration for the `/` scope, the alias `/` and the alternative encodings:
+Para eliminar el asset `index.html`, junto con la configuración de fallback para
+el alcance `/`, el alias `/` y las codificaciones alternativas:
 
 ```rust
 asset_router
@@ -903,26 +887,27 @@ asset_router
   .unwrap();
 ```
 
-To delete the `app.js`asset, along with the alternative encodings:
+Para eliminar el asset `app.js`, junto con las codificaciones alternativas:
 
 ```rust
 asset_router.delete_assets(vec!["/app.js"]).unwrap();
 ```
 
-To delete the `css/app-ba74b708.css` asset, along with the alternative encodings:
+Para eliminar el asset `css/app-ba74b708.css`, junto con las codificaciones
+alternativas:
 
 ```rust
 asset_router.delete_assets(vec!["/css/app-ba74b708.css"]).unwrap();
 ```
 
-And finally, to delete the `/old` redirect:
+Y finalmente, para eliminar la redirección `/old`:
 
 ```rust
 asset_router.delete_assets_by_path(vec!["/old"]).unwrap();
 ```
 
-After deleting any assets, make sure to set the canister's
-certified data again:
+Luego de eliminar cualquier asset, asegúrate de establecer los datos
+certificados del canister:
 
 ```rust
 use ic_cdk::api::set_certified_data;
@@ -930,16 +915,16 @@ use ic_cdk::api::set_certified_data;
 set_certified_data(&asset_router.root_hash());
 ```
 
-### Deleting all assets
+### Eliminando todos los assets
 
-It's also possible to delete all assets and their certification in one go:
+También es posible eliminar todos los assets y su certificación de una vez:
 
 ```rust
 asset_router.delete_all_assets();
 ```
 
-After deleting any assets, make sure to set the canister's
-certified data again:
+Luego de eliminar cualquier asset, asegúrate de establecer los datos
+certificados del canister:
 
 ```rust
 use ic_cdk::api::set_certified_data;
@@ -947,21 +932,31 @@ use ic_cdk::api::set_certified_data;
 set_certified_data(&asset_router.root_hash());
 ```
 
-## Querying assets
+## Consultando assets
 
-The `AssetRouter` has two functions to retrieve an `AssetMap` containing assets.
+El `AssetRouter` tiene dos funciones para obtener un `AssetMap` que contiene
+assets.
 
-The `get_assets()` function returns all standard assets, while the `get_fallback_assets()` function returns all fallback assets.
+La función `get_assets()` devuelve todos los assets estándar, mientras que la
+función `get_fallback_assets()` devuelve todos los assets de fallback.
 
-The `AssetMap` can be used to query assets by `path`, `encoding`, and `starting_range`.
+El `AssetMap` se puede utilizar para consultar assets por `ruta`, `codificación`
+y `rango inicial`.
 
-For standard assets, the path refers to the asset's path, e.g., `/index.html`.
+Para los assets estándar, la ruta se refiere a la ruta del asset, por ejemplo,
+`/index.html`.
 
-For fallback assets, the path refers to the scope that the fallback is valid for, e.g., `/`. See the `fallback_for` config option for more information on fallback scopes.
+Para los assets de fallback, la ruta se refiere al alcance para el cual se
+aplica el fallback, por ejemplo, `/`. Consulta la opción de configuración
+`fallback_for` para obtener más información sobre los alcances de fallback.
 
-For all types of assets, the encoding refers to the encoding of the asset; see `AssetEncoding`.
+Para todos los tipos de assets, la codificación se refiere a la codificación del
+asset; consulta `AssetEncoding`.
 
-Assets greater than 2 MiB are split into multiple ranges; the starting range allows retrieval of
-individual chunks of these large assets. The first range is `Some(0)`, the second range is
-`Some(ASSET_CHUNK_SIZE)`, the third range is `Some(ASSET_CHUNK_SIZE * 2)`, and so on. The entire asset can
-also be retrieved by passing `None` as the `starting_range`. Note that `ASSET_CHUNK_SIZE` is a constant defined in the `ic_asset_certification` crate.
+Los assets mayores a 2 MiB se dividen en múltiples rangos; el rango inicial
+permite recuperar fragmentos individuales de estos assets grandes. El primer
+rango es `Some(0)`, el segundo rango es `Some(ASSET_CHUNK_SIZE)`, el tercer
+rango es `Some(ASSET_CHUNK_SIZE * 2)`, y así sucesivamente. El asset completo
+también se puede recuperar pasando `None` como el `starting_range`. Ten en
+cuenta que `ASSET_CHUNK_SIZE` es una constante definida en el paquete
+`ic_asset_certification`.
