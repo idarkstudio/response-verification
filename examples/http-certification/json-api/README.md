@@ -1,18 +1,28 @@
-# Serving JSON over HTTP
+# Servir JSON sobre HTTP
 
-This guide walks through an example project that demonstrates how to create a canister that can serve certified JSON over HTTP. The example project presents a very simple REST API for creating and listing to-do items. There is no authentication or persistent storage.
+Esta guía muestra un proyecto de ejemplo que demuestra cómo crear un contenedor
+que puede servir JSON certificado sobre HTTP. El proyecto de ejemplo presenta
+una API REST muy simple para crear y listar elementos de tareas pendientes. No
+hay autenticación ni almacenamiento persistente.
 
-This is not a beginner's canister development guide. Many fundamental concepts that a relatively experienced canister developer should already know will be omitted. Concepts specific to HTTP certification will be called out here and can help to understand the [full code example](https://github.com/dfinity/response-verification/tree/main/examples/http-certification/json-api).
+Esta no es una guía de desarrollo de contenedores para principiantes. Se
+omitirán muchos conceptos fundamentales que un desarrollador de contenedores
+relativamente experimentado debería conocer. Los conceptos específicos de la
+certificación HTTP se destacarán aquí y pueden ayudar a comprender el
+[ejemplo de código completo](https://github.com/dfinity/response-verification/tree/main/examples/http-certification/json-api).
 
-## Prerequisites
+## Requisitos previos
 
-It's recommended to check out earlier guides before reading this one.
+Se recomienda revisar las guías anteriores antes de leer esta.
 
-- [x] Complete the ["Custom HTTP canisters"](https://internetcomputer.org/docs/current/developer-docs/http-compatible-canisters/custom-http-canisters) guide.
+- [x] Completar la guía
+      ["Contenedores HTTP personalizados"](https://internetcomputer.org/docs/current/developer-docs/http-compatible-canisters/custom-http-canisters).
 
-## Lifecycle
+## Ciclo de vida
 
-Responses are certified in the `init` lifecycle hook. The same function runs during the `post_upgrade` hook since the certification tree does not persist across upgrades.
+Las respuestas se certifican en el gancho `init`. La misma función se ejecuta
+durante el gancho `post_upgrade` ya que el árbol de certificación no persiste en
+las actualizaciones.
 
 ```rust
 // run when a canister is first installed
@@ -36,27 +46,44 @@ fn post_upgrade() {
 }
 ```
 
-## CEL expressions
+## Expresiones CEL
 
-CEL expressions only need to be set up once and can then be reused until the next canister upgrade. Responses can also be set up once and reused. If the response is static and will not change throughout the canister's lifetime, then it only needs to be certified once. If the response can change, however, then it will need to be re-certified every time it changes.
+Las expresiones CEL solo necesitan configurarse una vez y luego se pueden
+reutilizar hasta la próxima actualización del contenedor. Las respuestas también
+se pueden configurar una vez y reutilizar. Si la respuesta es estática y no
+cambiará durante la vida útil del contenedor, solo necesita certificarse una
+vez. Sin embargo, si la respuesta puede cambiar, entonces deberá certificarse
+cada vez que cambie.
 
-`DefaultResponseOnlyCelExpression` is used when only the response is to be certified. If the request is also to be certified, then `DefaultFullCelExpression` should be used. Alternatively, the higher-level `DefaultCelExpression` can hold any type of CEL expression using the "Default" scheme. In the future, there may be more schemes and the higher-level `CelExpression` will be able to hold CEL expressions from those different schemes. It is up to the developers to decide how they want to store and organize their CEL expressions.
+`DefaultResponseOnlyCelExpression` se utiliza cuando solo se va a certificar la
+respuesta. Si también se va a certificar la solicitud, se debe usar
+`DefaultFullCelExpression`. Alternativamente, la expresión CEL de nivel superior
+`DefaultCelExpression` puede contener cualquier tipo de expresión CEL utilizando
+el esquema "Default". En el futuro, puede haber más esquemas y la expresión
+`CelExpression` de nivel superior podrá contener expresiones CEL de esos
+diferentes esquemas. Depende de los desarrolladores decidir cómo desean
+almacenar y organizar sus expresiones CEL.
 
-In this example, there are two different CEL expressions used, a "full" CEL expression and a "response-only" CEL expression. The "full" CEL expression is used for the certified "todos" and the "response-only" CEL expression for the "Not found" response. For more information on defining CEL expressions, see the relevant section in the [`ic-http-certification` docs](https://docs.rs/ic-http-certification/latest/ic_http_certification/#defining-cel-expressions).
+En este ejemplo, se utilizan dos expresiones CEL diferentes, una expresión CEL
+"completa" y una expresión CEL "solo respuesta". La expresión CEL "completa" se
+utiliza para los "todos" certificados y la expresión CEL "solo respuesta" para
+la respuesta "No encontrada". Para obtener más información sobre cómo definir
+expresiones CEL, consulte la sección relevante en la documentación de
+[`ic-http-certification`](https://docs.rs/ic-http-certification/latest/ic_http_certification/#defining-cel-expressions).
 
 ```rust
 lazy_static! {
-    // define a full CEL expression that will certify the following:
-    // - request
-    //   - method
-    //   - body
-    //   - no headers
-    //   - no query parameters
-    // - response
-    //   - status code
-    //   - body
-    //   - all headers
-    // this CEL expression will be used for all routes except for the not found route
+    // definir una expresión CEL completa que certificará lo siguiente:
+    // - solicitud
+    //   - método
+    //   - cuerpo
+    //   - sin headers
+    //   - sin parámetros de consulta
+    // - respuesta
+    //   - código de estado
+    //   - cuerpo
+    //   - todos los headers
+    // esta expresión CEL se utilizará para todas las rutas excepto la ruta no encontrada
     static ref TODO_CEL_EXPR_DEF: DefaultFullCelExpression<'static> = DefaultCelBuilder::full_certification()
         .with_request_headers(vec![])
         .with_request_query_parameters(vec![])
@@ -66,12 +93,12 @@ lazy_static! {
         .build();
     static ref TODO_CEL_EXPR: String = TODO_CEL_EXPR_DEF.to_string();
 
-    // define a response-only CEL expression that will certify the following:
-    // - response
-    //   - status code
-    //   - body
-    //   - all headers
-    // this CEL expression will be used for the not found route
+    // definir una expresión CEL solo respuesta que certificará lo siguiente:
+    // - respuesta
+    //   - código de estado
+    //   - cuerpo
+    //   - todos los headers
+    // esta expresión CEL se utilizará para la ruta no encontrada
     static ref NOT_FOUND_CEL_EXPR_DEF: DefaultResponseOnlyCelExpression<'static> = DefaultCelBuilder::response_only_certification()
         .with_response_certification(DefaultResponseCertification::response_header_exclusions(
             vec![],
@@ -81,24 +108,61 @@ lazy_static! {
 }
 ```
 
-## Response headers
+## Headers de respuesta
 
-The security headers added to responses are based on the [OWASP Secure Headers project](https://owasp.org/www-project-secure-headers/index.html).
+Los headers de seguridad agregados a las respuestas se basan en el proyecto
+[OWASP Secure Headers](https://owasp.org/www-project-secure-headers/index.html).
 
-These security headers have been included as a reasonably secure default for most JSON-based APIs. However, it's vitally important for developers to educate themselves and make informed decisions in the context of their own project's needs.
+Estos headers de seguridad se han incluido como un valor predeterminado
+razonablemente seguro para la mayoría de las API basadas en JSON. Sin embargo,
+es de vital importancia que los desarrolladores se eduquen y tomen decisiones
+informadas en el contexto de las necesidades de su propio proyecto.
 
-Some headers from this project have not been included:
+Algunos headers de este proyecto no se han incluido:
 
-- `X-Frame-Options`: This header is used to prevent clickjacking attacks by embedding web content inside a malicious webpage. Pure JSON APIs are typically not vulnerable to this attack since they are not directly renderable in a browser. However, this header can be included additionally by developers with a value of `deny` or `sameorigin` to err on the side of caution.
-- `Content-Security-Policy` (CSP): This header is used to prevent cross-site scripting (XSS) attacks on sites that render HTML content. It defines what sources the browser should consider valid for loading scripts, stylesheets, or other resources within the context of the loaded page. Since pure JSON APIs are not directly rendered within a browser they are not vulnerable to this attack. This header can also be additionally included by developers to err on the side of caution.
-- `X-Permitted-Cross-Domain-Policies`: This header was used to provide access control for legacy technologies such as Adobe Flash or Acrobat, but these technologies are largely obsolete now and modern JSON-based APIs should prefer using `Access-Control-Allow-Origin` (CORS) headers.
-- `Clear-Site-Data`: This header is used to tell browsers to clear site-specific data such as local storage, cookies, or caches. Since this API does not set cookies, there's no need to include the header.
-- `Cross-Origin-Embedder-Policy`: This header is used to mitigate Spectre or Meltdown attacks by preventing a website from embedding another website's subresources. Since pure JSON APIs are not directly rendered within a browser they are not vulnerable to these attacks.
-- `Cross-Origin-Opener-Policy`: This header is used to prevent websites opened in a new tab or window from maintaining access to the original opener tab or window. Since pure JSON APIs are not directly rendered within a browser they are not vulnerable to this attack.
-- `Cross-Origin-Resource-Policy`: This header is used to limit access to an API from other origins. CORS should be preferred as a more modern approach to access control, but this header can be included if it is expected for an older browser to access the API.
-- `Permissions-Policy`: This header is used to limit what features and APIs (e.g. geolocation, camera, microphone) the browser is allowed to access in the context of a website. Since pure JSON APIs are not directly rendered within a browser this header is not relevant.
+- `X-Frame-Options`: Este encabezado se utiliza para prevenir ataques de
+  clickjacking al incrustar contenido web dentro de una página web maliciosa.
+  Las API JSON puras generalmente no son vulnerables a este tipo de ataque, ya
+  que no se pueden representar directamente en un navegador. Sin embargo, los
+  desarrolladores pueden incluir este encabezado adicionalmente con un valor de
+  `deny` o `sameorigin` para ser cautelosos.
+- `Content-Security-Policy` (CSP): Este encabezado se utiliza para prevenir
+  ataques de scripting entre sitios (XSS) en sitios que representan contenido
+  HTML. Define qué fuentes debe considerar válidas el navegador para cargar
+  scripts, hojas de estilo u otros recursos en el contexto de la página cargada.
+  Dado que las API JSON puras no se representan directamente en un navegador, no
+  son vulnerables a este tipo de ataque. Sin embargo, los desarrolladores pueden
+  incluir este encabezado adicionalmente para ser cautelosos.
+- `X-Permitted-Cross-Domain-Policies`: Este encabezado se utilizaba para
+  proporcionar control de acceso a tecnologías heredadas como Adobe Flash o
+  Acrobat, pero estas tecnologías son en gran medida obsoletas ahora y las API
+  basadas en JSON modernas deben preferir el uso de headers
+  `Access-Control-Allow-Origin` (CORS).
+- `Clear-Site-Data`: Este encabezado se utiliza para indicar a los navegadores
+  que borren datos específicos del sitio, como almacenamiento local, cookies o
+  cachés. Dado que esta API no establece cookies, no es necesario incluir el
+  encabezado.
+- `Cross-Origin-Embedder-Policy`: Este encabezado se utiliza para mitigar
+  ataques Spectre o Meltdown al evitar que un sitio web incruste los recursos
+  secundarios de otro sitio web. Dado que las API JSON puras no se representan
+  directamente en un navegador, no son vulnerables a estos ataques.
+- `Cross-Origin-Opener-Policy`: Este encabezado se utiliza para evitar que los
+  sitios web abiertos en una nueva pestaña o ventana mantengan acceso a la
+  pestaña o ventana abridora original. Dado que las API JSON puras no se
+  representan directamente en un navegador, no son vulnerables a este tipo de
+  ataque.
+- `Cross-Origin-Resource-Policy`: Este encabezado se utiliza para limitar el
+  acceso a una API desde otros orígenes. Se debe preferir CORS como un enfoque
+  más moderno para el control de acceso, pero este encabezado se puede incluir
+  si se espera que un navegador más antiguo acceda a la API.
+- `Permissions-Policy`: Este encabezado se utiliza para limitar las
+  características y API (por ejemplo, geolocalización, cámara, micrófono) a las
+  que se permite acceder al navegador en el contexto de un sitio web. Dado que
+  las API JSON puras no se representan directamente en un navegador, este
+  encabezado no es relevante.
 
-To facilitate the consistent usage of these headers, there is a reusable `create_response` function used when creating responses:
+Para facilitar el uso consistente de estos headers, hay una función
+reutilizable `create_response` que se utiliza al crear respuestas:
 
 ```rust
 fn create_response(status_code: StatusCode, body: Vec<u8>) -> HttpResponse<'static> {
@@ -123,11 +187,17 @@ fn create_response(status_code: StatusCode, body: Vec<u8>) -> HttpResponse<'stat
 }
 ```
 
-## Responses
+## Respuestas
 
-The HTTP certification tree has a dedicated data structure while responses are stored in a `HashMap`, along with their respective certifications. The responses and certifications are stored separately from the CEL expressions because they are likely to change throughout the canister's lifecycle, whereas the CEL expressions are set only once. They could all also be stored within the same structure if a developer wishes.
+El árbol de certificación HTTP tiene una estructura de datos dedicada, mientras
+que las respuestas se almacenan en un `HashMap`, junto con sus respectivas
+certificaciones. Las respuestas y certificaciones se almacenan por separado de
+las expresiones CEL porque es probable que cambien a lo largo del ciclo de vida
+del contenedor, mientras que las expresiones CEL se configuran solo una vez.
+También se podrían almacenar todos en la misma estructura si así lo desea el
+desarrollador.
 
-Fallback responses (such as the "not found" response) are stored separately from other responses. This is done to allow for simpler routing logic for responses which will be described in more detail later in this guide.
+Respuestas de respaldo (como la respuesta "no encontrada") se almacenan por separado de otras respuestas. Esto se hace para permitir una lógica de enrutamiento más simple para las respuestas, lo cual se describirá con más detalle más adelante en esta guía.
 
 ```rust
 struct CertifiedHttpResponse<'a> {
@@ -143,18 +213,25 @@ thread_local! {
 }
 ```
 
-Responses are certified with several steps, which are encapsulated into a reusable function:
+Las respuestas se certifican con varios pasos, que se encapsulan en una función
+reutilizable:
 
-- Removing any existing responses and certifications for the request path.
-  - This is done to prevent multiple responses from being certified for a given request path.
-- Retrieve the pre-computed CEL expression for the request path.
-- Insert the `Ic-CertificationExpression` header for the given response, with the corresponding stringified CEL expression as its value.
-- Calculate the certification for the given response and CEL expression.
-- Store the response together with its certification.
-- Insert the certification into the certification tree at the appropriate path.
-- Update the canister's [certified data](https://internetcomputer.org/docs/current/references/ic-interface-spec/#system-api-certified-data).
+- Eliminar cualquier respuesta y certificación existente para la ruta de la
+  solicitud.
+  - Esto se hace para evitar que se certifiquen múltiples respuestas para una
+    ruta de solicitud determinada.
+- Recuperar la expresión CEL precalculada para la ruta de la solicitud.
+- Insertar el encabezado `Ic-CertificationExpression` para la respuesta dada,
+  con la expresión CEL correspondiente convertida a cadena como su valor.
+- Calcular la certificación para la respuesta dada y la expresión CEL.
+- Almacenar la respuesta junto con su certificación.
+- Insertar la certificación en el árbol de certificación en la ruta
+  correspondiente.
+- Actualizar los datos certificados del contenedor.
 
-For more information on creating certifications, see the relevant section in the [`ic-http-certification` docs](https://docs.rs/ic-http-certification/latest/ic_http_certification/#creating-certifications).
+Para obtener más información sobre cómo crear certificaciones, consulte la
+sección relevante en la documentación de
+[`ic-http-certification`](https://docs.rs/ic-http-certification/latest/ic_http_certification/#creating-certifications).
 
 ```rust
 fn certify_response(
@@ -164,12 +241,12 @@ fn certify_response(
 ) {
     let request_path = request.get_path().unwrap();
 
-    // retrieve and remove any existing response for the request method and path
+    // recuperar y eliminar cualquier respuesta existente para el método y la ruta de la solicitud
     let existing_response = RESPONSES.with_borrow_mut(|responses| {
         responses.remove(&(request.method().to_string(), request_path.clone()))
     });
 
-    // if there is an existing response, remove its certification from the certification tree
+    // si hay una respuesta existente, eliminar su certificación del árbol de certificación
     if let Some(existing_response) = existing_response {
         HTTP_TREE.with_borrow_mut(|http_tree| {
             http_tree.delete(&HttpCertificationTreeEntry::new(
@@ -179,18 +256,18 @@ fn certify_response(
         })
     }
 
-    // insert the `Ic-CertificationExpression` header with the stringified CEL expression as its value
+    // insertar el encabezado `Ic-CertificationExpression` con la expresión CEL convertida a cadena como su valor
     response.add_header((
         CERTIFICATE_EXPRESSION_HEADER_NAME.to_string(),
         TODO_CEL_EXPR.clone(),
     ));
 
-    // create the certification for this response and CEL expression pair
+    // crear la certificación para esta respuesta y par de expresión CEL
     let certification =
         HttpCertification::full(&TODO_CEL_EXPR_DEF, &request, &response, None).unwrap();
 
     RESPONSES.with_borrow_mut(|responses| {
-        // store the response for later retrieval
+        // almacenar la respuesta para su posterior recuperación
         responses.insert(
             (request.method().to_string(), request_path),
             CertifiedHttpResponse {
@@ -201,16 +278,17 @@ fn certify_response(
     });
 
     HTTP_TREE.with_borrow_mut(|http_tree| {
-        // insert the certification into the certification tree
+        // insertar la certificación en el árbol de certificación
         http_tree.insert(&HttpCertificationTreeEntry::new(tree_path, &certification));
 
-        // set the canister's certified data
+        // establecer los datos certificados del contenedor
         set_certified_data(&http_tree.root_hash());
     });
 }
 ```
 
-These steps can now be re-used for each response that needs to be certified:
+Estos pasos ahora se pueden reutilizar para cada respuesta que necesita ser
+certificada:
 
 ```rust
 fn certify_list_todos_response() {
@@ -254,11 +332,15 @@ fn certify_not_allowed_todo_responses() {
 }
 ```
 
-Certifying the "Not found" response requires a slightly different procedure. This is very similar to the reusable `certify_response` function, but the following differences:
+Certificar la respuesta "No encontrada" requiere un procedimiento ligeramente
+diferente. Esto es muy similar a la función reutilizable `certify_response`,
+pero con las siguientes diferencias:
 
-- The `HttpCertificationPath` variant used is `wildcard` instead of `exact`.
-- A `DefaultResponseOnlyCelExpression` is used instead of a `DefaultFullCelExpression`.
-- The response is stored in `FALLBACK_RESPONSES` instead of `RESPONSES`.
+- La variante `HttpCertificationPath` utilizada es `wildcard` en lugar de
+  `exact`.
+- Se utiliza una `DefaultResponseOnlyCelExpression` en lugar de una
+  `DefaultFullCelExpression`.
+- La respuesta se almacena en `FALLBACK_RESPONSES` en lugar de `RESPONSES`.
 
 ```rust
 fn certify_not_found_response() {
@@ -267,7 +349,7 @@ fn certify_not_found_response() {
 
     let tree_path = HttpCertificationPath::wildcard(NOT_FOUND_PATH);
 
-    // insert the `Ic-CertificationExpression` header with the stringified CEL expression as its value
+    // insertar el encabezado `Ic-CertificationExpression` con la expresión CEL convertida a cadena como su valor
     response.add_header((
         CERTIFICATE_EXPRESSION_HEADER_NAME.to_string(),
         NOT_FOUND_CEL_EXPR.clone(),
@@ -297,22 +379,28 @@ fn certify_not_found_response() {
 }
 ```
 
-## Serving responses
+## Sirviendo respuestas
 
-When serving a certified response, an additional header must be added to the response that will act as proof of certification for the [HTTP gateway](https://internetcomputer.org/docs/current/references/http-gateway-protocol-spec) that will perform validation. Adding this header to the response has been abstracted into a separate function:
+Al servir una respuesta certificada, se debe agregar un encabezado adicional a
+la respuesta que actuará como prueba de certificación para la
+[puerta de enlace HTTP](https://internetcomputer.org/docs/current/references/http-gateway-protocol-spec)
+que realizará la validación. Agregar este encabezado a la respuesta se ha
+abstraído en una función separada:
 
-With this reusable function, serving certified responses is relatively straightforward:
+Con esta función reutilizable, servir respuestas certificadas es relativamente
+sencillo:
 
-- First, check if a response for the current request URL and method exists.
-- If a response exists, serve it.
-- Otherwise, serve the fallback "Not found" response.
-- Add the `IC-Certificate` response header.
+- Primero, verificar si existe una respuesta para la URL y el método de
+  solicitud actual.
+- Si existe una respuesta, servirla.
+- De lo contrario, servir la respuesta de "No encontrada" por defecto.
+- Agregar el encabezado de respuesta `IC-Certificate`.
 
 ```rust
 fn query_handler(request: &HttpRequest, _params: &Params) -> HttpResponse<'static> {
-    let request_path = request.get_path().expect("Failed to get req path");
+    let request_path = request.get_path().expect("No se pudo obtener la ruta de la solicitud");
 
-    // first check if there is a certified response for the request method and path
+    // primero verificar si hay una respuesta certificada para el método y la ruta de la solicitud
     let (tree_path, certified_response) = RESPONSES
         .with_borrow(|responses| {
             responses
@@ -324,7 +412,7 @@ fn query_handler(request: &HttpRequest, _params: &Params) -> HttpResponse<'stati
                     )
                 })
         })
-        // if there is no certified response, use the fallback response
+        // si no hay una respuesta certificada, usar la respuesta de "No encontrada" por defecto
         .unwrap_or_else(|| {
             FALLBACK_RESPONSES.with_borrow(|fallback_responses| {
                 fallback_responses
@@ -339,7 +427,7 @@ fn query_handler(request: &HttpRequest, _params: &Params) -> HttpResponse<'stati
 
     HTTP_TREE.with_borrow(|http_tree| {
         add_v2_certificate_header(
-            &data_certificate().expect("No data certificate available"),
+            &data_certificate().expect("No hay un certificado de datos disponible"),
             &mut response,
             &http_tree
                 .witness(
@@ -355,7 +443,9 @@ fn query_handler(request: &HttpRequest, _params: &Params) -> HttpResponse<'stati
 }
 ```
 
-When update calls are made to endpoints that do not update state, return an error to prevent additional cycle costs for these endpoints:
+Cuando se realizan llamadas de actualización a puntos finales que no actualizan
+el estado, se devuelve un error para evitar costos adicionales de ciclo para
+estos puntos finales:
 
 ```rust
 fn no_update_call_handler(_http_request: &HttpRequest, _params: &Params) -> HttpResponse<'static> {
@@ -363,9 +453,15 @@ fn no_update_call_handler(_http_request: &HttpRequest, _params: &Params) -> Http
 }
 ```
 
-## Updating state
+## Actualizando el estado
 
-The to-do list is updatable via `POST`, `PATCH`, and `DELETE` requests. These calls will initially be received as [`query` calls](https://internetcomputer.org/docs/current/references/ic-interface-spec/#http-query) which do not allow for updating the canister state, so the query call is [upgraded to an update call](https://internetcomputer.org/docs/current/references/http-gateway-protocol-spec#upgrade-to-update-calls) to allow for the canister's state to change.
+La lista de tareas pendientes se puede actualizar mediante solicitudes `POST`,
+`PATCH` y `DELETE`. Estas llamadas se recibirán inicialmente como
+[llamadas de consulta](https://internetcomputer.org/docs/current/references/ic-interface-spec/#http-query)
+que no permiten actualizar el estado del canister, por lo que la llamada de
+consulta se
+[actualiza a una llamada de actualización](https://internetcomputer.org/docs/current/references/http-gateway-protocol-spec#upgrade-to-update-calls)
+para permitir que el estado del canister cambie.
 
 ```rust
 fn upgrade_to_update_call_handler(
@@ -376,9 +472,16 @@ fn upgrade_to_update_call_handler(
 }
 ```
 
-Upgrading to an `update` call will instruct the HTTP gateway to remake the request as an [`update` call](https://internetcomputer.org/docs/current/references/ic-interface-spec/#http-call). As an update call, the response to this request does not need to be certified. Since the canister's state has changed, however, the static `query` call responses will need to be re-certified. The same functions that certified these responses in the first place can be reused to achieve this.
+La actualización a una llamada de `update` instruirá a la puerta de enlace HTTP
+a volver a realizar la solicitud como una
+[llamada de actualización](https://internetcomputer.org/docs/current/references/ic-interface-spec/#http-call).
+Como llamada de actualización, la respuesta a esta solicitud no necesita estar
+certificada. Sin embargo, dado que el estado del canister ha cambiado, las
+respuestas estáticas de llamadas de consulta deberán volver a certificarse. Las
+mismas funciones que certificaron estas respuestas en primer lugar se pueden
+reutilizar para lograr esto.
 
-For creating to-do items:
+Para crear elementos de la lista de tareas pendientes:
 
 ```rust
 fn create_todo_item_handler(req: &HttpRequest, _params: &Params) -> HttpResponse<'static> {
@@ -409,7 +512,7 @@ fn create_todo_item_handler(req: &HttpRequest, _params: &Params) -> HttpResponse
 }
 ```
 
-For updating to-do items:
+Para actualizar elementos de la lista de tareas pendientes:
 
 ```rust
 fn update_todo_item_handler(req: &HttpRequest, params: &Params) -> HttpResponse<'static> {
@@ -435,7 +538,7 @@ fn update_todo_item_handler(req: &HttpRequest, params: &Params) -> HttpResponse<
 }
 ```
 
-And, finally, for deleting to-do items:
+Y, finalmente, para eliminar elementos de la lista de tareas pendientes:
 
 ```rust
 fn delete_todo_item_handler(_req: &HttpRequest, params: &Params) -> HttpResponse<'static> {
@@ -452,9 +555,13 @@ fn delete_todo_item_handler(_req: &HttpRequest, params: &Params) -> HttpResponse
 }
 ```
 
-## Routing
+## Enrutamiento
 
-To set up routing, the [`matchit`](https://docs.rs/matchit/latest/matchit/) crate is used. A router is created for each supported request method and a collection of routers is created separately for query and update calls. These routers are then stored in `HashMap`s:
+Para configurar el enrutamiento, se utiliza la biblioteca
+[`matchit`](https://docs.rs/matchit/latest/matchit/). Se crea un enrutador para
+cada método de solicitud admitido y se crea una colección de enrutadores por
+separado para llamadas de consulta y actualización. Estos enrutadores se
+almacenan en `HashMap`s:
 
 ```rust
 thread_local! {
@@ -463,10 +570,12 @@ thread_local! {
 }
 ```
 
-The route handlers are linked to the routers. For query calls, there are only two route handlers used:
+Los controladores de ruta se vinculan a los enrutadores. Para las llamadas de
+consulta, solo se utilizan dos controladores de ruta:
 
-- `upgrade_to_update_call_handler` for request methods that will modify the canister state.
-- `query_handler` for everything else.
+- `upgrade_to_update_call_handler` para los métodos de solicitud que modificarán
+  el estado del canister.
+- `query_handler` para todo lo demás.
 
 ```rust
 fn prepare_query_handlers() {
@@ -491,12 +600,12 @@ fn insert_query_route(method: &str, path: &str, route_handler: RouteHandler) {
 }
 ```
 
-For update calls, there are more handlers:
+Para las llamadas de actualización, hay más controladores de ruta:
 
-- `create_todo_item_handler` for POST requests.
-- `update_todo_item_handler` for PATCH requests.
-- `delete_todo_item_handler` for DELETE requests.
-- `no_update_call_handler` for everything else.
+- `create_todo_item_handler` para las solicitudes POST.
+- `update_todo_item_handler` para las solicitudes PATCH.
+- `delete_todo_item_handler` para las solicitudes DELETE.
+- `no_update_call_handler` para todo lo demás.
 
 ```rust
 fn prepare_update_handlers() {
@@ -520,23 +629,25 @@ fn insert_update_route(method: &str, path: &str, route_handler: RouteHandler) {
 }
 ```
 
-## Testing the canister
+## Probando el canister
 
-This example uses a canister called `http_certification_json_api_backend`.
+Este ejemplo utiliza un canister llamado `http_certification_json_api_backend`.
 
-To test the canister, you can use [`dfx`](https://internetcomputer.org/docs/current/developer-docs/getting-started/install) to start a local instance of the replica:
+Para probar el canister, puedes usar
+[`dfx`](https://internetcomputer.org/docs/current/developer-docs/getting-started/install)
+para iniciar una instancia local del replica:
 
 ```shell
 dfx start --background --clean
 ```
 
-Then, deploy the canister:
+Luego, implementa el canister:
 
 ```shell
 dfx deploy http_certification_json_api_backend
 ```
 
-To fetch to-do items:
+Para obtener los elementos de la lista de tareas pendientes:
 
 ```shell
 curl -s \
@@ -544,17 +655,17 @@ curl -s \
     --resolve "$(dfx canister id http_certification_json_api_backend).localhost:$(dfx info webserver-port):127.0.0.1" | jq
 ```
 
-To add a to-do item:
+Para agregar un elemento a la lista de tareas pendientes:
 
 ```shell
 curl -s -X POST \
     "http://$(dfx canister id http_certification_json_api_backend).localhost:$(dfx info webserver-port)/todos" \
     --resolve "$(dfx canister id http_certification_json_api_backend).localhost:$(dfx info webserver-port):127.0.0.1" \
     -H "Content-Type: application/json" \
-    -d '{ "title": "Learn Motoko" }' | jq
+    -d '{ "title": "Aprender Motoko" }' | jq
 ```
 
-To update a to-do item:
+Para actualizar un elemento de la lista de tareas pendientes:
 
 ```shell
 curl -s -X PATCH \
@@ -564,7 +675,7 @@ curl -s -X PATCH \
     -d '{ "completed": true }' | jq
 ```
 
-To delete a to-do item:
+Para eliminar un elemento de la lista de tareas pendientes:
 
 ```shell
 curl -s -X DELETE \
@@ -572,10 +683,14 @@ curl -s -X DELETE \
     --resolve "$(dfx canister id http_certification_json_api_backend).localhost:$(dfx info webserver-port):127.0.0.1" | jq
 ```
 
-## Resources
+## Recursos
 
-- [Example source code](https://github.com/dfinity/response-verification/tree/main/examples/http-certification/json-api).
-- [`ic-http-certification` crate](https://crates.io/crates/ic-http-certification).
-- [`ic-http-certification` docs](https://docs.rs/ic-http-certification/latest/ic_http_certification).
-- [`ic-http-certification` source code](https://github.com/dfinity/response-verification/tree/main/packages/ic-http-certification).
-- [OWASP Secure Headers Projects](https://owasp.org/www-project-secure-headers/index.html).
+- [Código fuente de ejemplo](https://github.com/dfinity/response-verification/tree/main/examples/http-certification/json-api).
+- Paquete `ic-http-certification` en
+  [crates.io](https://crates.io/crates/ic-http-certification).
+- Documentación de `ic-http-certification` en
+  [docs.rs](https://docs.rs/ic-http-certification/latest/ic_http_certification).
+- Código fuente de `ic-http-certification` en
+  [GitHub](https://github.com/dfinity/response-verification/tree/main/packages/ic-http-certification).
+- Proyectos de
+  [OWASP Secure Headers](https://owasp.org/www-project-secure-headers/index.html).

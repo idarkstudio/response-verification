@@ -1,27 +1,49 @@
-# HTTP certification
+# Certificación HTTP
 
-HTTP certification is a sub-protocol of the [ICP](https://internetcomputer.org/) [HTTP gateway protocol](https://internetcomputer.org/docs/current/references/http-gateway-protocol-spec). It is used to verify HTTP responses received by an HTTP gateway from a [canister](https://internetcomputer.org/how-it-works/canister-lifecycle/), with respect to the corresponding HTTP request. This allows HTTP gateways to verify that the responses they receive from canisters are authentic and have not been tampered with.
+La certificación HTTP es un subprotocolo del
+[ICP](https://internetcomputer.org/)
+[protocolo de puerta de enlace HTTP](https://internetcomputer.org/docs/current/references/http-gateway-protocol-spec).
+Se utiliza para verificar las respuestas HTTP recibidas por una puerta de enlace
+HTTP desde un
+[canister](https://internetcomputer.org/how-it-works/canister-lifecycle/), con
+respecto a la solicitud HTTP correspondiente. Esto permite a las puertas de
+enlace HTTP verificar que las respuestas que reciben de los canisters son
+auténticas y no han sido manipuladas.
 
-The `ic-http-certification` crate provides the foundation for implementing the HTTP certification protocol in Rust canisters. Certification is implemented in a number of steps:
+La biblioteca `ic-http-certification` proporciona la base para implementar el
+protocolo de certificación HTTP en canisters de Rust. La certificación se
+implementa en varios pasos:
 
-1. [Defining CEL expressions](#defining-cel-expressions).
-2. [Creating certifications](#creating-certifications).
-3. [Creating an HTTP certification tree](#creating-an-http-certification-tree).
+1. [Definición de expresiones CEL](#defining-cel-expressions).
+2. [Creación de certificaciones](#creating-certifications).
+3. [Creación de un árbol de certificación HTTP](#creating-an-http-certification-tree).
 
-## Defining CEL expressions
+## Definición de expresiones CEL
 
-[CEL](https://github.com/google/cel-spec) (Common Expression Language) is a portable expression language that can be used for different applications to easily interoperate. It can be seen as the computation or expression counterpart to [protocol buffers](https://github.com/protocolbuffers/protobuf).
+[CEL](https://github.com/google/cel-spec) (Common Expression Language) es un
+lenguaje de expresión portátil que se puede utilizar para diferentes
+aplicaciones interoperar fácilmente. Se puede ver como la contraparte
+computacional o de expresión a
+[protocol buffers](https://github.com/protocolbuffers/protobuf).
 
-CEL expressions are at the core of ICP's HTTP certification protocol. They are used to define the conditions under which a request and response pair should be certified and also what should be included from the corresponding request and response objects in the certification.
+Las expresiones CEL son el núcleo del protocolo de certificación HTTP de ICP. Se
+utilizan para definir las condiciones bajo las cuales se debe certificar un par
+de solicitud y respuesta, así como lo que se debe incluir de la solicitud y
+objetos de respuesta correspondientes en la certificación.
 
-CEL expressions can be created in two ways:
+Las expresiones CEL se pueden crear de dos formas:
 
-- Using the [CEL builder](#using-the-cel-builder).
-- Directly creating a [CEL expression](#directly-creating-a-cel-expression).
+- Utilizando el [constructor CEL](#using-the-cel-builder).
+- Creando directamente una [expresión CEL](#directly-creating-a-cel-expression).
 
-### Converting CEL expressions into their `String` representation
+### Conversión de expresiones CEL a su representación `String`
 
-Note that the `CelExpression` enum is not a CEL expression itself, but rather a Rust representation of a CEL expression. To convert a `CelExpression` into its `String` representation, use `CelExpression.to_string` or `create_cel_expr`. This applies to CEL expressions created both by the [CEL builder](#using-the-cel-builder) and [directly](#directly-creating-a-cel-expression).
+Tenga en cuenta que la enumeración `CelExpression` no es una expresión CEL en sí
+misma, sino más bien una representación de Rust de una expresión CEL. Para
+convertir una `CelExpression` en su representación `String`, use
+`CelExpression.to_string` o `create_cel_expr`. Esto se aplica a las expresiones
+CEL creadas tanto por el [constructor CEL](#using-the-cel-builder) como por
+[directamente](#directly-creating-a-cel-expression).
 
 ```rust
 use ic_http_certification::cel::{CelExpression, DefaultCelExpression};
@@ -29,7 +51,7 @@ use ic_http_certification::cel::{CelExpression, DefaultCelExpression};
 let cel_expr = CelExpression::Default(DefaultCelExpression::Skip).to_string();
 ```
 
-Alternatively:
+Alternativamente:
 
 ```rust
 use ic_http_certification::cel::{CelExpression, DefaultCelExpression, create_cel_expr};
@@ -38,45 +60,83 @@ let certification = CelExpression::Default(DefaultCelExpression::Skip);
 let cel_expr = create_cel_expr(&certification);
 ```
 
-### Using the CEL builder
+### Uso del constructor CEL
 
-The CEL builder interface is provided to ease the creation of CEL expressions through an ergonomic interface. It is also possible to [create CEL expressions directly](#directly-creating-a-cel-expression). To define a CEL expression, start with `DefaultCelBuilder`. This struct provides a set of associated functions that can be used to define how a request and response pair should be certified.
+La interfaz del constructor CEL se proporciona para facilitar la creación de
+expresiones CEL a través de una interfaz ergonómica. También es posible
+[crear expresiones CEL directamente](#directly-creating-a-cel-expression). Para
+definir una expresión CEL, comience con `DefaultCelBuilder`. Esta estructura
+proporciona un conjunto de funciones asociadas que se pueden utilizar para
+definir cómo se debe certificar un par de solicitud y respuesta.
 
-It's possible to
+Es posible
 
-- [Fully certify requests and responses](#fully-certified-request--response-pair).
-- [Partially certify requests](#partially-certified-request).
-- [Skip request certification](#skipping-request-certification).
-- [Partially certify responses](#partially-certified-response).
-- [Skip certification entirely](#skipping-certification).
+- [Certificar completamente solicitudes y respuestas](#fully-certified-request--response-pair).
+- [Certificar parcialmente las solicitudes](#partially-certified-request).
+- [Omitir la certificación de la solicitud](#skipping-request-certification).
+- [Certificar parcialmente las respuestas](#partially-certified-response).
+- [Omitir la certificación por completo](#skipping-certification).
 
-Note that if the request is certified, the response must also be certified. It is not possible to certify a request without also certifying a response. Any combination of fully or partially certified requests and responses can be used.
+Tenga en cuenta que si se certifica la solicitud, también se debe certificar la
+respuesta. No es posible certificar una solicitud sin certificar también una
+respuesta. Se pueden utilizar cualquier combinación de solicitudes y respuestas
+completamente o parcialmente certificadas.
 
-When a request is certified:
+Cuando se certifica una solicitud:
 
-- The request body and method are always certified.
-- The request headers and query parameters are optionally certified using the `with_request_headers` and `with_request_query_parameters` associated functions, respectively. Both associated functions take a `str` slice as an argument.
+- El cuerpo y el método de la solicitud siempre se certifican.
+- Las cabeceras de la solicitud y los parámetros de consulta se pueden
+  certificar opcionalmente utilizando las funciones asociadas
+  `with_request_headers` y `with_request_query_parameters`, respectivamente.
+  Ambas funciones asociadas toman una cadena `str` como argumento.
 
-When a response is certified:
+Cuando se certifica una respuesta:
 
-- The response body and status code are always certified.
-- The response headers are optionally certified using the `with_response_certification` associated function. This function takes the `DefaultResponseCertification` enum as an argument.
-    - To specify header inclusions, use the `certified_response_headers` associated function of the `DefaultResponseCertification` enum.
-    - To certify all response headers (with some optional exclusions), use the `response_header_exclusions` associated function of the `DefaultResponseCertification` enum. Both functions take a `str` slice as an argument.
+- El cuerpo y el código de estado de la respuesta siempre se certifican.
+- Las cabeceras de respuesta se pueden certificar opcionalmente utilizando la
+  función asociada `with_response_certification`. Esta función toma la
+  enumeración `DefaultResponseCertification` como argumento.   - Para
+  especificar las inclusiones de cabecera, use la función asociada
+  `certified_response_headers` de la enumeración `DefaultResponseCertification`.
+    - Para certificar todas las cabeceras de respuesta (con algunas exclusiones
+  opcionales), use la función asociada `response_header_exclusions` de la
+  enumeración `DefaultResponseCertification`. Ambas funciones toman una cadena
+  `str` como argumento.
 
-Regardless of what is included in certification, the request path is always used to determine if that certification should be used. It's also possible to set a certification for a "scope" or "directory" of paths; see [Defining tree paths](#defining-tree-paths) for more information on this.
+Independientemente de lo que se incluya en la certificación, la ruta de la
+solicitud siempre se utiliza para determinar si se debe utilizar esa
+certificación. También es posible establecer una certificación para un "ámbito"
+o "directorio" de rutas; consulte
+[Definición de rutas de árbol](#defining-tree-paths) para obtener más
+información al respecto.
 
-When defining CEL expressions, it's important to determine what should be certified and what can be safely excluded from certification. For example, if a response header is not certified, it will not be included in the certification and will not be verified by the HTTP gateway, meaning that the value of this header cannot be trusted by clients. As a general rule of thumb, starting with a fully certified request and response pair is a good idea and then removing parts of the certification as needed.
+Al definir expresiones CEL, es importante determinar qué se debe certificar y
+qué se puede excluir de la certificación. Por ejemplo, si una cabecera de
+respuesta no está certificada, no se incluirá en la certificación y no será
+verificada por la puerta de enlace HTTP, lo que significa que el valor de esta
+cabecera no se puede confiar por los clientes. Como regla general, es una buena
+idea comenzar con un par de solicitud y respuesta completamente certificado y
+luego eliminar partes de la certificación según sea necesario.
 
-It should be considered unsafe to exclude anything from request certification that can change the expected response. The request method, for example, can drastically affect what action is taken by the canister, and so excluding it from certification would allow a malicious replica to respond with the expected responses for a `'GET'` request, even though a `'POST'` request was made.
+Se debe considerar inseguro excluir cualquier cosa de la certificación de la
+solicitud que pueda cambiar la respuesta esperada. El método de la solicitud,
+por ejemplo, puede afectar drásticamente qué acción toma el canister, por lo que
+excluirlo de la certificación permitiría a una réplica malintencionada responder
+con las respuestas esperadas para una solicitud `'GET'`, aunque se haya
+realizado una solicitud `'POST'`.
 
-For responses, it should be considered unsafe to exclude anything from response certification that will be used by clients in a meaningful way. For example, excluding the `Content-Type` header from certification would allow a malicious replica to respond with a different content type than expected, which could cause clients to misinterpret the response.
+Para las respuestas, se debe considerar inseguro excluir cualquier cosa de la
+certificación de la respuesta que los clientes utilicen de manera significativa.
+Por ejemplo, excluir la cabecera `Content-Type` de la certificación permitiría a
+una réplica malintencionada responder con un tipo de contenido diferente al
+esperado, lo que podría causar que los clientes interpreten incorrectamente la
+respuesta.
 
-#### Fully certified request / response pair
+#### Par de solicitud / respuesta completamente certificado
 
-To define a fully certified request and response pair, including request headers, query parameters, and response headers, use `DefaultCelBuilder::full_certification`.
-
-For example:
+Para definir un par de solicitud y respuesta completamente certificado,
+incluyendo la solicitud cabeceras, parámetros de consulta y cabeceras de
+respuesta:
 
 ```rust
 use ic_http_certification::{DefaultCelBuilder, DefaultResponseCertification};
@@ -91,11 +151,21 @@ let cel_expr = DefaultCelBuilder::full_certification()
     .build();
 ```
 
-#### Partially certified request
+#### Solicitud parcialmente certificada
 
-Any number of request headers or request query parameters can be certified via `with_request_headers` and `with_request_query_parameters` respectively. Both methods will accept empty arrays, which is the same as not calling them at all. Likewise for `with_request_query_parameters`, if it is called with an empty array or not called at all, then no request query parameters will be certified. If both are called with an empty array, or neither is called, then only the request body and method will be certified, in addition to the response. As a reminder here, the response is always at least partially certified if the request is certified.
+Se pueden certificar cualquier número de cabeceras de solicitud o parámetros de
+consulta mediante las funciones asociadas `with_request_headers` y
+`with_request_query_parameters`, respectivamente. Ambos métodos aceptarán
+matrices vacías, lo que es lo mismo que no llamarlos en absoluto. Del mismo
+modo, para `with_request_query_parameters`, si se llama con una matriz vacía o
+no se llama en absoluto, entonces no se certificarán parámetros de consulta. Si
+ambos se llaman con una matriz vacía, o ninguno se llama, entonces solo el
+cuerpo y el método de la solicitud se certificarán, además de la respuesta. Como
+recordatorio, la respuesta siempre se certifica al menos parcialmente si la
+solicitud está certificada.
 
-For example, to certify only the request body and method, in addition to the response:
+Por ejemplo, para certificar solo el cuerpo y el método de la solicitud, además
+de la respuesta:
 
 ```rust
 use ic_http_certification::{DefaultCelBuilder, DefaultResponseCertification};
@@ -108,7 +178,7 @@ let cel_expr = DefaultCelBuilder::full_certification()
     .build();
 ```
 
-Alternatively, this can be done more explicitly:
+Alternativamente, esto se puede hacer de manera más explícita:
 
 ```rust
 use ic_http_certification::{DefaultCelBuilder, DefaultResponseCertification};
@@ -123,11 +193,17 @@ let cel_expr = DefaultCelBuilder::full_certification()
     .build();
 ```
 
-#### Skipping request certification
+#### Omitir la certificación de la solicitud
 
-Request certification can be skipped entirely by using `DefaultCelBuilder::response_only_certification` instead of `DefaultCelBuilder::full_certification`. Request certification should only be skipped if the response is determined solely by the request path. If any other part of the request can affect the response in a meaningful way, then request certification should not be skipped.
+La certificación de la solicitud se puede omitir por completo utilizando
+`DefaultCelBuilder::response_only_certification` en lugar de
+`DefaultCelBuilder::full_certification`. La certificación de la solicitud solo
+debe omitirse si la respuesta se determina únicamente por la ruta de la
+solicitud. Si cualquier otra parte de la solicitud puede afectar la respuesta de
+manera significativa, entonces no se debe omitir la certificación de la
+solicitud.
 
-For example:
+Por ejemplo:
 
 ```rust
 use ic_http_certification::{DefaultCelBuilder, DefaultResponseCertification};
@@ -141,11 +217,22 @@ let cel_expr = DefaultCelBuilder::response_only_certification()
     .build();
 ```
 
-#### Partially certified response
+#### Respuesta parcialmente certificada
 
-Any number of response headers can be provided via the `certified_response_headers` associated function of the `DefaultResponseCertification` enum when calling `with_response_certification`. The provided array can also be empty. If the array is empty, or the associated function is not called, no response headers will be certified. If all response headers are to be certified, with some exclusions, use the `response_header_exclusions` associated function of the `DefaultResponseCertification` enum. Care should be taken when choosing what headers to exclude from certification, as they will not be verified by the HTTP gateway. Any headers that hold meaningful information for clients should not be excluded.
+Se pueden proporcionar cualquier número de cabeceras de respuesta mediante la
+función asociada `certified_response_headers` de la enumeración
+`DefaultResponseCertification` al llamar `with_response_certification`. La
+matriz proporcionada también puede estar vacía. Si la matriz está vacía, o no se
+llama a la función asociada, no se certificarán cabeceras de respuesta. Si se
+certificarán todas las cabeceras de respuesta, con algunas exclusiones, use la
+función asociada `response_header_exclusions` de la enumeración
+`DefaultResponseCertification`. Se debe tener cuidado al elegir qué cabeceras
+excluir de la certificación, ya que no se verificarán por la puerta de enlace
+HTTP. Cualquier cabecera que contenga información significativa para los
+clientes no debe ser excluida.
 
-For example, to certify only the response body and status code:
+Por ejemplo, para certificar solo el cuerpo y el código de estado de la
+respuesta:
 
 ```rust
 use ic_http_certification::DefaultCelBuilder;
@@ -153,32 +240,59 @@ use ic_http_certification::DefaultCelBuilder;
 let cel_expr = DefaultCelBuilder::response_only_certification().build();
 ```
 
-This can also be done more explicitly:
+Esto también se puede hacer de manera más explícita:
+
+````rust
+`DefaultResponseCertification` enum when calling `with_response_certification`.
+The provided array can also be empty. If the array is empty, or the associated
+function is not called, no response headers will be certified. If all response
+headers are to be certified, with some exclusions, use the
+`response_header_exclusions` associated function of the
+`DefaultResponseCertification` enum. Care should be taken when choosing what
+headers to exclude from certification, as they will not be verified by the HTTP
+gateway. Any headers that hold meaningful information for clients should not be
+excluded.
+
+# Certificación HTTP
+
+Por ejemplo, para certificar solo el cuerpo de la respuesta y el código de estado:
+
+```rust
+use ic_http_certification::DefaultCelBuilder;
+
+let cel_expr = DefaultCelBuilder::response_only_certification().build();
+````
+
+Esto también se puede hacer de manera más explícita:
 
 ```rust
 use ic_http_certification::{DefaultCelBuilder, DefaultResponseCertification};
 
 let cel_expr = DefaultCelBuilder::response_only_certification()
-    .with_response_certification(DefaultResponseCertification::certified_response_headers(vec![]))
-    .build();
+  .with_response_certification(DefaultResponseCertification::certified_response_headers(vec![]))
+  .build();
 ```
 
-The same applies when using `DefaultCelBuilder::response_only_certification` and `DefaultCelBuilder::full_certification`:
+Lo mismo se aplica al usar `DefaultCelBuilder::response_only_certification` y
+`DefaultCelBuilder::full_certification`:
 
 ```rust
 use ic_http_certification::DefaultCelBuilder;
 
 let cel_expr = DefaultCelBuilder::full_certification()
-    .with_request_headers(vec!["Accept", "Accept-Encoding", "If-None-Match"])
-    .with_request_query_parameters(vec!["foo", "bar", "baz"])
-    .build();
+  .with_request_headers(vec!["Accept", "Accept-Encoding", "If-None-Match"])
+  .with_request_query_parameters(vec!["foo", "bar", "baz"])
+  .build();
 ```
 
-To skip response certification completely, certification overall must be skipped completely. It wouldn't be useful to certify a request without certifying a response.
+Para omitir completamente la certificación de la respuesta, se debe omitir
+completamente la certificación en general. No sería útil certificar una
+solicitud sin certificar una respuesta.
 
-#### Skipping certification
+#### Omitir la certificación
 
-To skip certification entirely, use `skip_certification`, for example:
+Para omitir completamente la certificación, usa `skip_certification`, por
+ejemplo:
 
 ```rust
 use ic_http_certification::DefaultCelBuilder;
@@ -186,98 +300,123 @@ use ic_http_certification::DefaultCelBuilder;
 let cel_expr = DefaultCelBuilder::skip_certification();
 ```
 
-Skipping certification may seem counterintuitive at first, but it is not always possible to certify a request and response pair. For example, a canister method that will return different data for every user cannot be easily certified.
+Omitir la certificación puede parecer contraintuitivo al principio, pero no
+siempre es posible certificar un par de solicitud y respuesta. Por ejemplo, un
+método de canister que devolverá datos diferentes para cada usuario no se puede
+certificar fácilmente.
 
-Typically, these requests have been routed through `raw` ICP URLs in the past, but this is dangerous because `raw` URLs allow any responding replica to decide whether or not certification is required. In contrast, by skipping certification using the above method with a non-`raw` URL, a replica will no longer be able to decide whether or not certification is required and instead this decision will be made by the canister itself and the result will go through consensus.
+Normalmente, estas solicitudes se han enrutado a través de URL de ICP `raw` en
+el pasado, pero esto es peligroso porque las URL `raw` permiten que cualquier
+réplica que responda decida si se requiere o no la certificación. En cambio, al
+omitir la certificación usando el método anterior con una URL no `raw`, una
+réplica ya no podrá decidir si se requiere o no la certificación y en su lugar
+esta decisión se tomará por el propio canister y el resultado pasará por
+consenso.
 
-Extreme caution should be taken when deciding to skip certification entirely. It should only be done when it is not possible to certify a request and response pair, and a modification of the response's content would not pose a security risk for the application.
+Se debe tener extrema precaución al decidir omitir completamente la
+certificación. Solo debe hacerse cuando no sea posible certificar un par de
+solicitud y respuesta, y una modificación del contenido de la respuesta no
+representaría un riesgo de seguridad para la aplicación.
 
-## Creating certifications
+## Creación de certificaciones
 
-Once a CEL expression has been defined, it can be used in conjunction with an `HttpRequest` and `HttpResponse` to create an instance of the `HttpCertification` struct. The `HttpCertification` struct has three associated functions:
+Una vez que se ha definido una expresión CEL, se puede utilizar junto con una
+`HttpRequest` y `HttpResponse` para crear una instancia de la estructura
+`HttpCertification`. La estructura `HttpCertification` tiene tres funciones
+asociadas:
 
-- The `full` associated function is used to include both the `HttpRequest` and the corresponding `HttpResponse` in certification.
-- The `response_only` associated function is used to include only the `HttpResponse` in certification and exclude the corresponding `HttpRequest` from certification.
-- The `skip` associated function is used to skip certification entirely.
+- La función asociada `full` se utiliza para incluir tanto la `HttpRequest` como
+  la correspondiente `HttpResponse` en la certificación.
+- La función asociada `response_only` se utiliza para incluir solo la
+  `HttpResponse` en la certificación y excluir la correspondiente `HttpRequest`
+  de la certificación.
+- La función asociada `skip` se utiliza para omitir completamente la
+  certificación.
 
-### Full certification
+### Certificación completa
 
-To perform a full certification, a CEL expression created from `DefaultCelBuilder::full_certification` is required, along with an `HttpRequest` and `HttpResponse`, and optionally, a pre-calculated response body hash.
+Para realizar una certificación completa, se requiere una expresión CEL creada a
+partir de `DefaultCelBuilder::full_certification`, junto con una `HttpRequest` y
+`HttpResponse`, y opcionalmente, un hash del cuerpo de respuesta precalculado.
 
-For example:
+Por ejemplo:
 
 ```rust
 use ic_http_certification::{HttpCertification, HttpRequest, HttpResponse, DefaultCelBuilder, DefaultResponseCertification};
 
 let cel_expr = DefaultCelBuilder::full_certification()
-    .with_request_headers(vec!["Accept", "Accept-Encoding", "If-None-Match"])
-    .with_request_query_parameters(vec!["foo", "bar", "baz"])
-    .with_response_certification(DefaultResponseCertification::certified_response_headers(vec![
-        "Cache-Control",
-        "ETag",
-    ]))
-    .build();
+  .with_request_headers(vec!["Accept", "Accept-Encoding", "If-None-Match"])
+  .with_request_query_parameters(vec!["foo", "bar", "baz"])
+  .with_response_certification(DefaultResponseCertification::certified_response_headers(vec![
+    "Cache-Control",
+    "ETag",
+  ]))
+  .build();
 
 let request = HttpRequest {
-    method: "GET".to_string(),
-    url: "/index.html?foo=a&bar=b&baz=c".to_string(),
-    headers: vec![
-        ("Accept".to_string(), "application/json".to_string()),
-        ("Accept-Encoding".to_string(), "gzip".to_string()),
-        ("If-None-Match".to_string(), "987654321".to_string()),
-    ],
-    body: vec![],
+  method: "GET".to_string(),
+  url: "/index.html?foo=a&bar=b&baz=c".to_string(),
+  headers: vec![
+    ("Accept".to_string(), "application/json".to_string()),
+    ("Accept-Encoding".to_string(), "gzip".to_string()),
+    ("If-None-Match".to_string(), "987654321".to_string()),
+  ],
+  body: vec![],
 };
 
 let response = HttpResponse {
-    status_code: 200,
-    headers: vec![
-        ("Cache-Control".to_string(), "no-cache".to_string()),
-        ("ETag".to_string(), "123456789".to_string()),
-        ("IC-CertificateExpression".to_string(), cel_expr.to_string()),
-    ],
-    body: vec![1, 2, 3, 4, 5, 6],
-    upgrade: None,
+  status_code: 200,
+  headers: vec![
+    ("Cache-Control".to_string(), "no-cache".to_string()),
+    ("ETag".to_string(), "123456789".to_string()),
+    ("IC-CertificateExpression".to_string(), cel_expr.to_string()),
+  ],
+  body: vec![1, 2, 3, 4, 5, 6],
+  upgrade: None,
 };
 
 let certification = HttpCertification::full(&cel_expr, &request, &response, None);
 ```
 
-### Response-only certification
+### Certificación solo de respuesta
 
-To perform a response-only certification, a CEL expression created from `DefaultCelBuilder::response_only_certification` is required, along with an `HttpResponse` and, optionally, a pre-calculated response body hash.
+Para realizar una certificación solo de respuesta, se requiere una expresión CEL
+creada a partir de `DefaultCelBuilder::response_only_certification`, junto con
+una `HttpResponse` y, opcionalmente, un hash del cuerpo de respuesta
+precalculado.
 
-For example:
+Por ejemplo:
 
 ```rust
 use ic_http_certification::{HttpCertification, HttpResponse, DefaultCelBuilder, DefaultResponseCertification};
 
 let cel_expr = DefaultCelBuilder::response_only_certification()
-    .with_response_certification(DefaultResponseCertification::certified_response_headers(vec![
-        "Cache-Control",
-        "ETag",
-    ]))
-    .build();
+  .with_response_certification(DefaultResponseCertification::certified_response_headers(vec![
+    "Cache-Control",
+    "ETag",
+  ]))
+  .build();
 
 let response = HttpResponse {
-    status_code: 200,
-    headers: vec![
-        ("Cache-Control".to_string(), "no-cache".to_string()),
-        ("ETag".to_string(), "123456789".to_string()),
-        ("IC-CertificateExpression".to_string(), cel_expr.to_string()),
-    ],
-    body: vec![1, 2, 3, 4, 5, 6],
-    upgrade: None,
+  status_code: 200,
+  headers: vec![
+    ("Cache-Control".to_string(), "no-cache".to_string()),
+    ("ETag".to_string(), "123456789".to_string()),
+    ("IC-CertificateExpression".to_string(), cel_expr.to_string()),
+  ],
+  body: vec![1, 2, 3, 4, 5, 6],
+  upgrade: None,
 };
 
 let certification = HttpCertification::response_only(&cel_expr, &response, None).unwrap();
 ```
 
-### Skipping certification
+### Omitir la certificación
 
-Skipping certification does not need an explicit CEL expression to be defined since it's always the same.
+Omitir la certificación no requiere que se defina una expresión CEL explícita ya
+que siempre es la misma.
 
-For example:
+Por ejemplo:
 
 ```rust
 use ic_http_certification::HttpCertification;
@@ -285,15 +424,24 @@ use ic_http_certification::HttpCertification;
 let certification = HttpCertification::skip();
 ```
 
-## Creating an HTTP certification tree
+## Creación de un árbol de certificación HTTP
 
-### Defining tree paths
+### Definir rutas del árbol
 
-Paths for the tree can be defined using the `HttpCertificationPath` struct and come in two types: `wildcard()` and `exact()`. Both types of paths may end with or without a trailing slash, but note that a path ending in a trailing slash is a distinct path from one that does not end with a trailing slash, and they will be treated as such by the tree.
+Las rutas para el árbol se pueden definir utilizando la estructura
+`HttpCertificationPath` y vienen en dos tipos: `wildcard()` y `exact()`. Ambos
+tipos de rutas pueden terminar con o sin una barra diagonal al final, pero ten
+en cuenta que una ruta que termina con una barra diagonal es una ruta distinta
+de una que no termina con una barra diagonal, y se tratarán como tales en el
+árbol.
 
-Wildcard paths can be used to match a sub-path of a request URL. This can be useful for 404 responses, fallbacks, or rewrites. They are defined using the `wildcard()` associated function.
+Las rutas de comodín se pueden utilizar para hacer coincidir una subruta de una
+URL de solicitud. Esto puede ser útil para respuestas 404, fallbacks o
+reescrituras. Se definen utilizando la función asociada `wildcard()`.
 
-In this example, the certification entered into the tree with this path will be valid for any request URL that begins with `/js`, unless there is a more specific path in the tree (e.g., `/js/example.js`).
+En este ejemplo, la certificación ingresada en el árbol con esta ruta será
+válida para cualquier URL de solicitud que comience con `/js`, a menos que haya
+una ruta más específica en el árbol (por ejemplo, `/js/example.js`).
 
 ```rust
 use ic_http_certification::HttpCertificationPath;
@@ -301,9 +449,14 @@ use ic_http_certification::HttpCertificationPath;
 let path = HttpCertificationPath::wildcard("/js");
 ```
 
-Exact paths are used to match an entire request URL. An exact path ending with a trailing slash refers to a file system directory, whereas one without a trailing slash refers to an individual file. Both are separate paths within the certification tree and will be treated completely independently.
+Las rutas exactas se utilizan para hacer coincidir una URL de solicitud
+completa. Una ruta exacta que termina con una barra diagonal se refiere a un
+directorio del sistema de archivos, mientras que una sin una barra diagonal se
+refiere a un archivo individual. Ambas son rutas separadas dentro del árbol de
+certificación y se tratarán completamente de forma independiente.
 
-In this example, the certification entered into the tree with this path will only be valid for a request URL that is exactly `/js/example.js`.
+En este ejemplo, la certificación ingresada en el árbol con esta ruta solo será
+válida para una URL de solicitud que sea exactamente `/js/example.js`.
 
 ```rust
 use ic_http_certification::HttpCertificationPath;
@@ -311,49 +464,53 @@ use ic_http_certification::HttpCertificationPath;
 let path = HttpCertificationPath::exact("/js/example.js");
 ```
 
-### Using the HTTP certification tree
+### Uso del árbol de certificación HTTP
 
-The `HttpCertificationTree` can be easily initialized with the `Default` trait, and entries can be added to, removed from, or have witnesses generated by the tree using the `HttpCertificationTreeEntry` struct. The `HttpCertificationTreeEntry` requires a `HttpCertification` and an `HttpCertificationPath`.
+El `HttpCertificationTree` se puede inicializar fácilmente con el trait
+`Default`, y se pueden agregar, eliminar o generar testigos para las entradas
+del árbol utilizando la estructura `HttpCertificationTreeEntry`. La
+`HttpCertificationTreeEntry` requiere una `HttpCertification` y una
+`HttpCertificationPath`.
 
-For example:
+Por ejemplo:
 
 ```rust
 use ic_http_certification::{HttpCertification, HttpRequest, HttpResponse, DefaultCelBuilder, DefaultResponseCertification, HttpCertificationTree, HttpCertificationTreeEntry, HttpCertificationPath};
 
 let cel_expr = DefaultCelBuilder::full_certification()
-    .with_request_headers(vec!["Accept", "Accept-Encoding", "If-None-Match"])
-    .with_request_query_parameters(vec!["foo", "bar", "baz"])
-    .with_response_certification(DefaultResponseCertification::certified_response_headers(vec![
-        "Cache-Control",
-        "ETag",
-    ]))
-    .build();
+  .with_request_headers(vec!["Accept", "Accept-Encoding", "If-None-Match"])
+  .with_request_query_parameters(vec!["foo", "bar", "baz"])
+  .with_response_certification(DefaultResponseCertification::certified_response_headers(vec![
+    "Cache-Control",
+    "ETag",
+  ]))
+  .build();
 
 let request = HttpRequest {
-    method: "GET".to_string(),
-    url: "/index.html?foo=a&bar=b&baz=c".to_string(),
-    headers: vec![
-        ("Accept".to_string(), "application/json".to_string()),
-        ("Accept-Encoding".to_string(), "gzip".to_string()),
-        ("If-None-Match".to_string(), "987654321".to_string()),
-    ],
-    body: vec![],
+  method: "GET".to_string(),
+  url: "/index.html?foo=a&bar=b&baz=c".to_string(),
+  headers: vec![
+    ("Accept".to_string(), "application/json".to_string()),
+    ("Accept-Encoding".to_string(), "gzip".to_string()),
+    ("If-None-Match".to_string(), "987654321".to_string()),
+  ],
+  body: vec![],
 };
 
 let response = HttpResponse {
-    status_code: 200,
-    headers: vec![
-        ("Cache-Control".to_string(), "no-cache".to_string()),
-        ("ETag".to_string(), "123456789".to_string()),
-        ("IC-CertificateExpression".to_string(), cel_expr.to_string()),
-    ],
-    body: vec![1, 2, 3, 4, 5, 6],
-    upgrade: None,
+  status_code: 200,
+  headers: vec![
+    ("Cache-Control".to_string(), "no-cache".to_string()),
+    ("ETag".to_string(), "123456789".to_string()),
+    ("IC-CertificateExpression".to_string(), cel_expr.to_string()),
+  ],
+  body: vec![1, 2, 3, 4, 5, 6],
+  upgrade: None,
 };
 
 let request_url = "/example.json";
 let path = HttpCertificationPath::exact(request_url);
-let certification = HttpCertification::full(&cel_expr, &request, &response, None).unwrap();
+let certification = HttpCertification::full(&cel_expr, &request, &response, None);
 
 let mut http_certification_tree = HttpCertificationTree::default();
 
@@ -369,138 +526,187 @@ let witness = http_certification_tree.witness(&entry, request_url);
 http_certification_tree.delete(&entry);
 ```
 
-### Handling upgrades
+### Manejo de actualizaciones
 
-CEL expressions, certifications, the certification tree, and the corresponding requests and responses are not persisted across upgrades, by default. This means that if a canister is upgraded, all of this information will be lost. To handle upgrades effectively, all initialization logic run in the canister's `init` hook should also be run in the `post_upgrade` hook. This will ensure that the certification tree is correctly re-initialized after an upgrade. Most data structures, aside from the certification tree, can be persisted using stable memory, and the certification tree can be re-initialized using this persisted data. Care should be taken to not exceed the canister's instruction limit when re-initializing the certification tree, which can easily occur if the number of responses being certified grows very large. This case could potentially be addressed in the future by developing a stable memory-compatible certification tree.
+Las expresiones CEL, las certificaciones, el árbol de certificación y las
+correspondientes solicitudes y respuestas no se persisten en las
+actualizaciones, de forma predeterminada. Esto significa que si un canister se
+actualiza, toda esta información se perderá. Para manejar las actualizaciones de
+manera efectiva, toda la lógica de inicialización que se ejecuta en el gancho
+`init` del canister también debe ejecutarse en el gancho `post_upgrade`. Esto
+asegurará que el árbol de certificación se reinicialice correctamente después de
+una actualización. La mayoría de las estructuras de datos, excepto el árbol de
+certificación, se pueden persistir utilizando memoria estable, y el árbol de
+certificación se puede reinicializar utilizando estos datos persistidos. Se debe
+tener cuidado de no exceder el límite de instrucciones del canister al
+reinicializar el árbol de certificación, lo cual puede ocurrir fácilmente si el
+número de respuestas que se certifican crece mucho. Este caso podría abordarse
+en el futuro desarrollando un árbol de certificación compatible con memoria
+estable.
 
-### Changing data
+### Cambio de datos
 
-In addition to initializing certifications in the `init` and `post_upgrade` hooks, if a response is changed during the canister's lifetime in response to an `update` call, the certification tree should be updated to reflect this change. This can be done by deleting the old certification from the tree and inserting the new certification. This should be done in the same `update` call as the response is changed to ensure that the certification tree is always up-to-date; otherwise, `query` calls returning that response will fail verification.
+Además de inicializar las certificaciones en los ganchos `init` y
+`post_upgrade`, si una respuesta cambia durante la vida útil del canister en
+respuesta a una llamada `update`, el árbol de certificación debe actualizarse
+para reflejar este cambio. Esto se puede hacer eliminando la certificación
+antigua del árbol e insertando la nueva certificación. Esto debe hacerse en la
+misma llamada `update` en la que se cambia la respuesta para asegurarse de que
+el árbol de certificación esté siempre actualizado; de lo contrario, las
+llamadas `query` que devuelvan esa respuesta no superarán la verificación.
 
-## Directly creating a CEL expression
+## Creación directa de una expresión CEL
 
-To define a CEL expression, start with the `CelExpression` enum. This enum provides a set of variants that can be used to define different types of CEL expressions supported by ICP HTTP gateways. Currently only one variant is supported, known as the "default" certification expression, but more may be added in the future as the HTTP certification protocol evolves over time.
+Para definir una expresión CEL, comienza con la enumeración `CelExpression`.
+Esta enumeración proporciona un conjunto de variantes que se pueden utilizar
+para definir diferentes tipos de expresiones CEL admitidas por las pasarelas
+HTTP de ICP. Actualmente, solo se admite una variante, conocida como la
+expresión de certificación "predeterminada", pero se pueden agregar más en el
+futuro a medida que el protocolo de certificación HTTP evolucione con el tiempo.
 
-When certifying requests:
+Al certificar solicitudes:
 
-- The request body and method are always certified.
+- El cuerpo de la solicitud y el método siempre se certifican.
 
-- To certify request headers and query parameters, use the `headers` and `query_paramters` fields of the `DefaultRequestCertification` struct. Both fields take a `str` slice as an argument.
+- Para certificar las cabeceras de la solicitud y los parámetros de consulta,
+  utiliza los campos `headers` y `query_parameters` de la estructura
+  `DefaultRequestCertification`. Ambos campos toman una lista de `str` como
+  argumento.
 
-When certifying responses:
+Al certificar respuestas:
 
-- The response body and status code are always certified.
+- El cuerpo de la respuesta y el código de estado siempre se certifican.
 
-- To certify response headers, use the `certified_response_headers` associated function of the `DefaultResponseCertification` enum. Or to certify all response headers, with some exclusions, use the `response_header_exclusions` associated function of the `DefaultResponseCertification` enum. Both associated functions take a `str` slice as an argument.
+- Para certificar las cabeceras de respuesta, utiliza la función asociada
+  `certified_response_headers` del enum `DefaultResponseCertification`. O para
+  certificar todas las cabeceras de respuesta, con algunas exclusiones, utiliza
+  la función asociada `response_header_exclusions` del enum
+  `DefaultResponseCertification`. Ambas funciones asociadas toman una lista de
+  `str` como argumento.
 
-Note that the example CEL expressions provided below are formatted for readability. The actual CEL expressions produced by `CelExpression::to_string` and `create_cel_expr` are minified. The minified CEL expression is preferred because it is more compact, resulting in a smaller payload and a faster evaluation time for the HTTP gateway that is verifying the certification, but the formatted versions are also accepted.
+Ten en cuenta que las expresiones CEL de ejemplo proporcionadas a continuación
+están formateadas para legibilidad. Las expresiones CEL reales producidas por
+`CelExpression::to_string` y `create_cel_expr` están minificadas. La expresión
+CEL minificada es preferible porque es más compacta, lo que resulta en un tamaño
+de carga más pequeño y un tiempo de evaluación más rápido para la pasarela HTTP
+que verifica la certificación, pero también se aceptan las versiones
+formateadas.
 
-### Fully certified request / response pair
+### Par solicitud / respuesta completamente certificado
 
-To define a fully certified request and response pair, including request headers, query parameters, and response headers:
-
-```rust
-use std::borrow::Cow;
-use ic_http_certification::cel::{CelExpression, DefaultCelExpression, DefaultFullCelExpression, DefaultRequestCertification, DefaultResponseCertification};
-
-let cel_expr = CelExpression::Default(DefaultCelExpression::Full(
-  DefaultFullCelExpression {
-    request: DefaultRequestCertification::new(
-      vec!["Accept", "Accept-Encoding", "If-None-Match"],
-      vec!["foo", "bar", "baz"],
-    ),
-    response: DefaultResponseCertification::certified_response_headers(vec![
-      "ETag",
-      "Cache-Control",
-    ]),
-  }));
-```
-
-This will produce the following CEL expression:
-
-```protobuf
-default_certification (
-  ValidationArgs {
-    request_certification: RequestCertification {
-      certified_request_headers: ["Accept", "Accept-Encoding", "If-None-Match"],
-      certified_query_parameters: ["foo", "bar", "baz"]
-    },
-    response_certification: ResponseCertification {
-      certified_response_headers: ResponseHeaderList {
-        headers: [
-          "ETag",
-          "Cache-Control"
-        ]
-      }
-    }
-  }
-)
-```
-
-### Partially certified request
-
-Any number of request headers or query parameters can be provided via the `headers` and `query_parameters` fields of the `DefaultRequestCertification` struct, and both can be an empty array. If the `headers` field is empty, no request headers will be certified. Likewise for the `query_parameters` field, if it is empty, then no query parameters will be certified. If both are empty, only the request body and method will be certified.
-
-For example, to certify only the request body and method:
+Para definir un par de solicitud y respuesta completamente certificado,
+incluyendo las cabeceras de solicitud, los parámetros de consulta y las
+cabeceras de respuesta:
 
 ```rust
 use std::borrow::Cow;
 use ic_http_certification::cel::{CelExpression, DefaultCelExpression, DefaultFullCelExpression, DefaultRequestCertification, DefaultResponseCertification};
 
 let cel_expr = CelExpression::Default(DefaultCelExpression::Full(
-  DefaultFullCelExpression {
-    request: DefaultRequestCertification::new(
-      vec![],
-      vec![],
-    ),
-    response: DefaultResponseCertification::certified_response_headers(vec![
-      "ETag",
-      "Cache-Control",
-    ]),
-  }));
+  DefaultFullCelExpression {
+  request: DefaultRequestCertification::new(
+    vec!["Accept", "Accept-Encoding", "If-None-Match"],
+    vec!["foo", "bar", "baz"],
+  ),
+  response: DefaultResponseCertification::certified_response_headers(vec![
+    "ETag",
+    "Cache-Control",
+  ]),
+  }));
 ```
 
-This will produce the following CEL expression:
+Esto producirá la siguiente expresión CEL:
 
 ```protobuf
 default_certification (
-  ValidationArgs {
-    request_certification: RequestCertification {
-      certified_request_headers: [],
-      certified_query_parameters: []
-    },
-    response_certification: ResponseCertification {
-      certified_response_headers: ResponseHeaderList {
-        headers: [
-          "ETag",
-          "Cache-Control"
-        ]
-      }
-    }
-  }
+  ValidationArgs {
+  request_certification: RequestCertification {
+    certified_request_headers: ["Accept", "Accept-Encoding", "If-None-Match"],
+    certified_query_parameters: ["foo", "bar", "baz"]
+  },
+  response_certification: ResponseCertification {
+    certified_response_headers: ResponseHeaderList {
+    headers: [
+      "ETag",
+      "Cache-Control"
+    ]
+    }
+  }
+  }
 )
 ```
 
-### Skipping request certification
+### Solicitud parcialmente certificada
 
-Request certification can be skipped entirely by using the `ResponseOnly` variant of the `DefaultCelExpression` struct.
+Se pueden proporcionar cualquier número de cabeceras de solicitud o parámetros
+de consulta a través de los campos `headers` y `query_parameters` de la
+estructura `DefaultRequestCertification`, y ambos también pueden ser una matriz
+vacía. Si el campo `headers` está vacío, no se certificarán las cabeceras de la
+solicitud. Del mismo modo, si el campo `query_parameters` está vacío, no se
+certificarán los parámetros de consulta. Si ambos están vacíos, solo se
+certificará el cuerpo de la solicitud y el método.
 
-For example:
+Por ejemplo, para certificar solo el cuerpo de la solicitud y el método:
+
+```rust
+use std::borrow::Cow;
+use ic_http_certification::cel::{CelExpression, DefaultCelExpression, DefaultFullCelExpression, DefaultRequestCertification, DefaultResponseCertification};
+
+let cel_expr = CelExpression::Default(DefaultCelExpression::Full(
+  DefaultFullCelExpression {
+  request: DefaultRequestCertification::new(
+    vec![],
+    vec![],
+  ),
+  response: DefaultResponseCertification::certified_response_headers(vec![
+    "ETag",
+    "Cache-Control",
+  ]),
+  }));
+```
+
+Esto producirá la siguiente expresión CEL:
+
+```protobuf
+default_certification (
+  ValidationArgs {
+  request_certification: RequestCertification {
+    certified_request_headers: [],
+    certified_query_parameters: []
+  },
+  response_certification: ResponseCertification {
+    certified_response_headers: ResponseHeaderList {
+    headers: [
+      "ETag",
+      "Cache-Control"
+    ]
+    }
+  }
+  }
+)
+```
+
+### Omitir la certificación de solicitud
+
+La certificación de solicitud se puede omitir por completo utilizando la
+variante `ResponseOnly` de la estructura `DefaultCelExpression`.
+
+Por ejemplo:
 
 ```rust
 use std::borrow::Cow;
 use ic_http_certification::cel::{CelExpression, DefaultCelExpression, DefaultResponseOnlyCelExpression, DefaultResponseCertification};
 
 let cel_expr = CelExpression::Default(DefaultCelExpression::ResponseOnly(
-  DefaultResponseOnlyCelExpression {
-    response: DefaultResponseCertification::certified_response_headers(vec![
-      "ETag",
-      "Cache-Control",
-    ]),
-  }));
+  DefaultResponseOnlyCelExpression {
+  response: DefaultResponseCertification::certified_response_headers(vec![
+    "ETag",
+    "Cache-Control",
+  ]),
+  }));
 ```
 
-This will produce the following CEL expression:
+Esto producirá la siguiente expresión CEL:
 
 ```protobuf
 default_certification (
@@ -518,82 +724,89 @@ default_certification (
 )
 ```
 
-### Partially certified response
+### Respuesta parcialmente certificada
 
-Similarly to request certification, any number of response headers can be provided via the `certified_response_headers` associated function of the `DefaultResponseCertification` enum, and it can also be an empty array. If the array is empty, no response headers will be certified.
+De manera similar a la certificación de solicitud, se pueden proporcionar
+cualquier número de cabeceras de respuesta a través de la función asociada
+`certified_response_headers` del enum `DefaultResponseCertification`, y también
+puede ser un arreglo vacío. Si el arreglo está vacío, no se certificarán las
+cabeceras de respuesta.
 
-For example:
+Por ejemplo:
 
 ```rust
 use std::borrow::Cow;
 use ic_http_certification::cel::{CelExpression, DefaultCertification, DefaultRequestCertification, DefaultResponseCertification};
 
 let cel_expr = CelExpression::DefaultCertification(Some(DefaultCertification {
-  request: DefaultRequestCertification::new(
-    vec!["Accept", "Accept-Encoding", "If-None-Match"],
-    vec!["foo", "bar", "baz"],
-  ),
-  response_certification: DefaultResponseCertification::certified_response_headers(vec![]),
+  request: DefaultRequestCertification::new(
+    vec!["Accept", "Accept-Encoding", "If-None-Match"],
+    vec!["foo", "bar", "baz"],
+  ),
+  response_certification: DefaultResponseCertification::certified_response_headers(vec![]),
 }));
 ```
 
-This will produce the following CEL expression:
+Esto producirá la siguiente expresión CEL:
 
 ```protobuf
 default_certification (
-  ValidationArgs {
-    request_certification: RequestCertification {
-      certified_request_headers: ["Accept", "Accept-Encoding", "If-None-Match"],
-      certified_query_parameters: ["foo", "bar", "baz"]
-    },
-    response_certification: ResponseCertification {
-      certified_response_headers: ResponseHeaderList {
-        headers: []
-      }
-    }
-  }
+  ValidationArgs {
+    request_certification: RequestCertification {
+      certified_request_headers: ["Accept", "Accept-Encoding", "If-None-Match"],
+      certified_query_parameters: ["foo", "bar", "baz"]
+    },
+    response_certification: ResponseCertification {
+      certified_response_headers: ResponseHeaderList {
+        headers: []
+      }
+    }
+  }
 )
 ```
 
-If the `response_header_exclusions` associated function is used, an empty array will certify _all_ response headers. For example:
+Si se utiliza la función asociada `response_header_exclusions`, un arreglo vacío
+certificará _todas_ las cabeceras de respuesta. Por ejemplo:
 
 ```rust
 use std::borrow::Cow;
 use ic_http_certification::cel::{CelExpression, DefaultCelExpression, DefaultFullCelExpression, DefaultRequestCertification, DefaultResponseCertification};
 
 let cel_expr = CelExpression::Default(DefaultCelExpression::Full(
-  DefaultFullCelExpression {
-    request: DefaultRequestCertification::new(
-      vec!["Accept", "Accept-Encoding", "If-None-Match"],
-      vec!["foo", "bar", "baz"],
-    ),
-    response: DefaultResponseCertification::response_header_exclusions(vec![]),
-  }));
+  DefaultFullCelExpression {
+    request: DefaultRequestCertification::new(
+      vec!["Accept", "Accept-Encoding", "If-None-Match"],
+      vec!["foo", "bar", "baz"],
+    ),
+    response: DefaultResponseCertification::response_header_exclusions(vec![]),
+  }));
 ```
 
-This will produce the following CEL expression:
+Esto producirá la siguiente expresión CEL:
 
 ```protobuf
 default_certification (
-  ValidationArgs {
-    request_certification: RequestCertification {
-      certified_request_headers: ["Accept", "Accept-Encoding", "If-None-Match"],
-      certified_query_parameters: ["foo", "bar", "baz"]
-    },
-    response_certification: ResponseCertification {
-      response_header_exclusions: ResponseHeaderList {
-        headers: []
-      }
-    }
-  }
+  ValidationArgs {
+    request_certification: RequestCertification {
+      certified_request_headers: ["Accept", "Accept-Encoding", "If-None-Match"],
+      certified_query_parameters: ["foo", "bar", "baz"]
+    },
+    response_certification: ResponseCertification {
+      response_header_exclusions: ResponseHeaderList {
+        headers: []
+      }
+    }
+  }
 )
 ```
 
-To skip response certification completely, then certification overall must be skipped completely. It wouldn't be useful to certify a request without certifying a response.
+Para omitir completamente la certificación de respuesta, también se debe omitir
+la certificación en general. No sería útil certificar una solicitud sin
+certificar una respuesta.
 
-### Skipping certification
+### Omitir la certificación
 
-To skip certification entirely:
+Para omitir completamente la certificación:
 
 ```rust
 use ic_http_certification::cel::{CelExpression, DefaultCelExpression};
@@ -601,12 +814,12 @@ use ic_http_certification::cel::{CelExpression, DefaultCelExpression};
 let cel_expr = CelExpression::Default(DefaultCelExpression::Skip);
 ```
 
-This will produce the following CEL expression:
+Esto producirá la siguiente expresión CEL:
 
 ```protobuf
 default_certification (
-  ValidationArgs {
-    no_certification: Empty {}
-  }
+  ValidationArgs {
+    no_certification: Empty {}
+  }
 )
 ```

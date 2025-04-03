@@ -1,44 +1,66 @@
-# Serving static assets over HTTP
+# Servir archivos estáticos a través de HTTP
 
-This guide walks through an example project that demonstrates how to create a canister that can serve certified static assets (HTML, CSS, JS) over HTTP. The example project presents a very simple single-page JavaScript application. Assets are embedded into the canister when it is compiled.
+Esta guía presenta un proyecto de ejemplo que demuestra cómo crear un canister
+que pueda servir archivos estáticos certificados (HTML, CSS, JS) a través de
+HTTP. El proyecto de ejemplo es una aplicación de una sola página en JavaScript
+muy sencilla. Los archivos se incrustan en el canister cuando se compila.
 
-This is not a beginner's canister development guide. Many fundamental concepts that a relatively experienced canister developer should already know will be omitted. Concepts specific to asset certification will be called out here and can help to understand the [full code example](https://github.com/dfinity/response-verification/tree/main/examples/http-certification/assets).
+Esta no es una guía para principiantes sobre el desarrollo de canisters. Se
+omitirán muchos conceptos fundamentales que un desarrollador con experiencia en
+canisters ya debería conocer. Aquí se explicarán conceptos específicos de la
+certificación de archivos, lo que puede ayudar a comprender el
+[código de ejemplo completo](https://github.com/dfinity/response-verification/tree/main/examples/http-certification/assets).
 
-The certification and serving of assets is based on the high-level [`ic-asset-certification` crate](https://crates.io/crates/ic-asset-certification).
+La certificación y el servicio de archivos se basan en la biblioteca de alto
+nivel
+[`ic-asset-certification`](https://crates.io/crates/ic-asset-certification).
 
-If more flexibility than what this crate provides is needed, the lower-level [`ic-http-certification` crate](https://crates.io/crates/ic-http-certification) can be used. Be sure to check out the ["Custom HTTP Canisters"](https://internetcomputer.org/docs/current/developer-docs/http-compatible-canisters/custom-http-canisters) and ["Custom asset canisters"](https://internetcomputer.org/docs/current/developer-docs/web-apps/http-compatible-canisters/serving-static-assets-over-http) guides to learn more about how to use that library for serving assets.
+Si se necesita más flexibilidad de la que proporciona esta biblioteca, se puede
+utilizar la de bajo nivel
+[`ic-http-certification`](https://crates.io/crates/ic-http-certification).
+Asegúrate de revisar las guías
+["Custom HTTP Canisters"](https://internetcomputer.org/docs/current/developer-docs/http-compatible-canisters/custom-http-canisters)
+y
+["Custom asset canisters"](https://internetcomputer.org/docs/current/developer-docs/web-apps/http-compatible-canisters/serving-static-assets-over-http)
+para aprender más sobre cómo usar esa biblioteca para servir archivos.
 
-## The frontend assets
+## Los archivos del frontend
 
-The frontend project used for this example is a simple starter project generated with `npx degit solidjs/templates/ts my-app`. The only changes that have been made are in the `vite.config.ts` file. The `vite-plugin-compression` plugin was added and configured to generate Gzip and Brotli encoded assets, alongside the original assets. The `ext` configuration affects the file extension and it's important to keep this consistent with the backend canister code that will be seen later in this guide.
+El proyecto frontend utilizado en este ejemplo es un proyecto inicial simple
+generado con `npx degit solidjs/templates/ts my-app`. Los únicos cambios que se
+han realizado están en el archivo `vite.config.ts`. Se agregó el plugin
+`vite-plugin-compression` y se configuró para generar archivos codificados en
+Gzip y Brotli, además de los archivos originales. La configuración `ext` afecta
+la extensión de los archivos y es importante mantenerla consistente con el
+código del canister en el backend, que se verá más adelante en esta guía.
 
 ```ts
 import { defineConfig } from 'vite';
 import solidPlugin from 'vite-plugin-solid';
 
-// import the compression plugin
+// Importar el plugin de compresión
 import viteCompressionPlugin from 'vite-plugin-compression';
 
 export default defineConfig({
   plugins: [
     solidPlugin(),
 
-    // setup Gzip compression
+    // Configurar la compresión Gzip
     viteCompressionPlugin({
       algorithm: 'gzip',
-      // this extension will be referenced later in the canister code
+      // Esta extensión será referenciada más adelante en el código del canister
       ext: '.gz',
-      // ensure to not delete the original files
+      // Asegurar que no se eliminen los archivos originales
       deleteOriginFile: false,
       threshold: 0,
     }),
 
-    // setup Brotli compression
+    // Configurar la compresión Brotli
     viteCompressionPlugin({
       algorithm: 'brotliCompress',
-      // this extension will be referenced later in the canister code
+      // Esta extensión será referenciada más adelante en el código del canister
       ext: '.br',
-      // ensure to not delete the original files
+      // Asegurar que no se eliminen los archivos originales
       deleteOriginFile: false,
       threshold: 0,
     }),
@@ -52,13 +74,17 @@ export default defineConfig({
 });
 ```
 
-The rest of this guide will address the canister code.
+El resto de esta guía abordará el código del canister.
 
-## Lifecycle hooks
+## Hooks del ciclo de vida
 
-The first thing to do when the canister bootstraps for the first time is to certify all the assets. This is done in the `init` hook. The `certify_all_assets` function will be covered in a later section.
+Lo primero que se debe hacer cuando el canister se inicia por primera vez es
+certificar todos los archivos. Esto se realiza en el hook `init`. La función
+`certify_all_assets` se explicará en una sección posterior.
 
-The asset certification is not stored in stable memory so it's necessary to re-certify the assets after a canister upgrade. This is done in the `post_upgrade` hook.
+La certificación de archivos no se almacena en memoria estable, por lo que es
+necesario volver a certificar los archivos después de una actualización del
+canister. Esto se realiza en el hook `post_upgrade`.
 
 ```rust
 #[init]
@@ -72,39 +98,49 @@ fn post_upgrade() {
 }
 ```
 
-## Canister endpoints
+## Endpoints del canister
 
-There is only one canister endpoint in this example to serve assets, the `http_request` query endpoint. The `http_request` handler uses two auxiliary functions, `serve_metrics` and `serve_asset`, which are covered in a later section.
+Este ejemplo tiene un solo endpoint en el canister para servir archivos: el
+endpoint de consulta `http_request`. El manejador `http_request` usa dos
+funciones auxiliares, `serve_metrics` y `serve_asset`, que se explicarán más
+adelante.
 
 ```rust
 #[query]
 fn http_request(req: HttpRequest) -> HttpResponse {
     let path = req.get_path().expect("Failed to parse request path");
 
-    // if the request is for the metrics endpoint, serve the metrics
+    // Si la solicitud es para el endpoint de métricas, servir las métricas
     if path == "/metrics" {
         return serve_metrics();
     }
 
-    // otherwise, serve the requested asset
+    // De lo contrario, servir el archivo solicitado
     serve_asset(&req)
 }
 ```
 
-## Loading assets
+## Carga de archivos
 
-Assets are embedded into the canister's Wasm at build time. This is achieved using the [`include_dir`](https://michael-f-bryan.github.io/include_dir/include_dir/index.html) crate. Note that this works fine for a small number of assets, but a larger number of assets may cause longer compile times, as mentioned in the [crate's documentation](https://michael-f-bryan.github.io/include_dir/include_dir/index.html#compile-time-considerations).
+Los archivos se incrustan en el Wasm del canister en el momento de la
+compilación. Esto se logra utilizando la biblioteca
+[`include_dir`](https://michael-f-bryan.github.io/include_dir/include_dir/index.html).
+Cabe señalar que esto funciona bien para un número pequeño de archivos, pero un
+número mayor de archivos puede causar tiempos de compilación más largos, como se
+menciona en la
+[documentación de la biblioteca](https://michael-f-bryan.github.io/include_dir/include_dir/index.html#compile-time-considerations).
 
-The assets are imported from the frontend build directory:
+Los archivos se importan desde el directorio de compilación del frontend:
 
 ```rust
 static ASSETS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../frontend/dist");
 ```
 
-With the assets loaded, they need to be converted into the `Asset` type that the `ic-asset-certification` crate uses.
+Una vez cargados los archivos, es necesario convertirlos al tipo `Asset` que usa
+la biblioteca `ic-asset-certification`.
 
 ```rust
-/// Rescursively collect all assets from the provided directory
+/// Recopila recursivamente todos los archivos del directorio proporcionado
 fn collect_assets<'content, 'path>(
     dir: &'content Dir<'path>,
     assets: &mut Vec<Asset<'content, 'path>>,
@@ -119,17 +155,25 @@ fn collect_assets<'content, 'path>(
 }
 ```
 
-## Certifying assets
+## Certificación de archivos
 
-Asset certification is configured using the `AssetConfig` type. This type is used to specify the content type, headers, and any fallbacks for each asset.
+La certificación de archivos se configura usando el tipo `AssetConfig`. Este
+tipo se usa para especificar el tipo de contenido, los encabezados y cualquier
+fallback para cada archivo.
 
-To handle common headers, a helper function `get_asset_headers` is used. The security headers added to responses are based on the [OWASP Secure Headers project](https://owasp.org/www-project-secure-headers/index.html).
+Para manejar encabezados comunes, se usa una función auxiliar
+`get_asset_headers`. Los encabezados de seguridad añadidos a las respuestas se
+basan en el proyecto
+[OWASP Secure Headers](https://owasp.org/www-project-secure-headers/index.html).
 
-These security headers have been included as a reasonably secure default for most static asset APIs. However, it's vitally important for developers to educate themselves and make informed decisions in the context of their own project's needs.
+Estos encabezados de seguridad se han incluido como una configuración
+razonablemente segura por defecto para la mayoría de las APIs de archivos
+estáticos. Sin embargo, es fundamental que los desarrolladores se informen y
+tomen decisiones bien fundamentadas según las necesidades de su propio proyecto.
 
 ```rust
 fn get_asset_headers(additional_headers: Vec<HeaderField>) -> Vec<HeaderField> {
-    // set up the default headers and include additional headers provided by the caller
+    // Configurar los encabezados predeterminados e incluir los adicionales proporcionados por el llamador
     let mut headers = vec![
         ("strict-transport-security".to_string(), "max-age=31536000; includeSubDomains".to_string()),
         ("x-frame-options".to_string(), "DENY".to_string()),
@@ -146,17 +190,24 @@ fn get_asset_headers(additional_headers: Vec<HeaderField>) -> Vec<HeaderField> {
 }
 ```
 
-For the `index.html` file, the `AssetConfig::File` variant is used to target the configuration to that file specifically. The `fallback_for` field of this variant is used to specify that this asset is the fallback for all paths that don't exactly match a file and the `aliased_by` field is used to specify alternative paths that will serve the asset.
+Para el archivo `index.html`, se usa la variante `AssetConfig::File` para
+configurarlo específicamente. El campo `fallback_for` de esta variante indica
+que este archivo es el fallback para todas las rutas que no coincidan
+exactamente con un archivo, y el campo `aliased_by` especifica rutas
+alternativas que servirán el mismo archivo.
 
-For the remaining files, they can all be configured in bulk using the `AssetConfig::Pattern` variant. This variant uses a glob pattern to match multiple files.
+Para los demás archivos, se pueden configurar en bloque utilizando la variante
+`AssetConfig::Pattern`, que usa un patrón de glob para coincidir con múltiples
+archivos.
 
-The `certify_all_assets` function performs the following steps:
+La función `certify_all_assets` realiza los siguientes pasos:
 
-1. Define the asset certification configurations.
-2. Collect all assets from the frontend build directory.
-3. Skip certification for the `/metrics` endpoint.
-4. Certify the assets using the `certify_assets` function from the `ic-asset-certification` crate.
-5. Set the canister's certified data.
+1. Definir las configuraciones de certificación de assets.
+2. Recopilar todos los assets del directorio de compilación del frontend.
+3. Omitir la certificación para el endpoint `/metrics`.
+4. Certificar los assets utilizando la función `certify_assets` de la
+   biblioteca `ic-asset-certification`.
+5. Establecer los datos certificados del canister.
 
 ```rust
 thread_local! {
@@ -265,9 +316,9 @@ fn certify_all_assets() {
 }
 ```
 
-## Serving assets
+## Sirviendo assets
 
-The `serve_asset` function from the `AssetRouter` is responsible for serving assets. This function returns an `HttpResponse` that can be returned to the caller.
+La función `serve_asset` del `AssetRouter` es responsable de servir los assets. Esta función devuelve una `HttpResponse` que puede ser devuelta al llamador.
 
 ```rust
 fn serve_asset(req: &HttpRequest) -> HttpResponse<'static> {
@@ -284,13 +335,20 @@ fn serve_asset(req: &HttpRequest) -> HttpResponse<'static> {
 }
 ```
 
-## Serving metrics
+### Sirviendo métricas
 
-The `serve_metrics` function is responsible for serving metrics. Since metrics are not certified, this procedure is a bit more involved compared to serving assets, which is handled entirely by the `asset_router`.
+La función `serve_metrics` maneja la entrega de métricas. A diferencia de los
+assets, las métricas no están certificadas, por lo que su manejo es más
+complejo.
 
-It's important to determine whether skipping certification is appropriate for the use case. In this example, metrics are not sensitive data and are not used to make decisions that could affect the canister's security. Therefore, it's determined to be acceptable to skip certification for this use case, but that may not be the case for every canister. The important takeaway from this example is to learn how to skip certification, when it is necessary and safe to do so.
+Es importante evaluar si omitir la certificación es seguro en cada caso de uso.
+En este ejemplo, las métricas no contienen datos sensibles ni afectan la
+seguridad del canister, por lo que es aceptable omitir su certificación.
 
-The `Metrics` struct is used to collect the number of assets, number of fallback assets, and the cycle balance and serialize this into JSON. The `add_v2_certificate_header` function from the `ic-http-certification` library is used to add the `IC-Certificate` header to the response and then the `IC-Certificate-Expression` header is added too. The `get_asset_headers` function is used to get the same headers for the response that are used for asset responses.
+La estructura `Metrics` recopila datos sobre la cantidad de assets, la cantidad de assets de respaldo (`fallback assets`) y el balance de ciclos del canister.
+Se utiliza `add_v2_certificate_header` de `ic-http-certification` para agregar
+el encabezado `IC-Certificate`. Además, se usa la función `get_asset_headers`
+para incluir los mismos encabezados que en las respuestas de assets.
 
 ```rust
 fn serve_metrics() -> HttpResponse<'static> {
@@ -338,37 +396,45 @@ fn serve_metrics() -> HttpResponse<'static> {
 }
 ```
 
-## Testing the canister
+---
 
-This example uses a canister called `http_certification_assets_backend`.
+### Probar el canister
 
-To test the canister, you can use [`dfx`](https://internetcomputer.org/docs/current/developer-docs/getting-started/install) to start a local instance of the replica:
+Este ejemplo usa un canister llamado `http_certification_assets_backend`.
 
-```shell
+Para probarlo, primero inicia una instancia local de la réplica de Internet
+Computer con
+[`dfx`](https://internetcomputer.org/docs/current/developer-docs/getting-started/install):
+
+```sh
 dfx start --background --clean
 ```
 
-Then, deploy the canister:
+Luego, despliega el canister:
 
-```shell
+```sh
 dfx deploy http_certification_assets_backend
 ```
 
-You can now access the canister's assets by navigating to the canister's URL in a web browser. The URL can also be found using the following command:
+Ahora puedes acceder a los assets del canister visitando la siguiente URL en un
+navegador web:
 
-```shell
+```sh
 echo "http://$(dfx canister id http_certification_assets_backend).localhost:$(dfx info webserver-port)"
 ```
 
-Alternatively, to make a request with `curl`:
+También puedes hacer una petición con `curl`:
 
-```shell
-curl "http://$(dfx canister id http_certification_assets_backend).localhost:$(dfx info webserver-port)" --resolve "$(dfx canister id http_certification_assets_backend).localhost:$(dfx info webserver-port):127.0.0.1"
+```sh
+curl "http://$(dfx canister id http_certification_assets_backend).localhost:$(dfx info webserver-port)" \
+     --resolve "$(dfx canister id http_certification_assets_backend).localhost:$(dfx info webserver-port):127.0.0.1"
 ```
 
-## Resources
+---
 
-- [Example source code](https://github.com/dfinity/response-verification/tree/main/examples/http-certification/assets).
+### Recursos adicionales
+
+- [Código fuente del ejemplo](https://github.com/dfinity/response-verification/tree/main/examples/http-certification/assets).
 - [`ic-asset-certification` crate](https://crates.io/crates/ic-asset-certification).
-- [`ic-asset-certification` docs](https://docs.rs/ic-asset-certification/latest/ic_asset_certification).
-- [`ic-asset-certification` source code](https://github.com/dfinity/response-verification/tree/main/packages/ic-asset-certification).
+- [Documentación de `ic-asset-certification`](https://docs.rs/ic-asset-certification/latest/ic_asset_certification).
+- [Código fuente de `ic-asset-certification`](https://github.com/dfinity/response-verification/tree/main/packages/ic-asset-certification).
